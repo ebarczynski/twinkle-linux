@@ -1,0 +1,21 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Twinkle Linux
+GenericName=Brightness Controller
+Comment=Control external monitor brightness via DDC/CI
+Comment[de]=Helligkeit externer Monitore über DDC/CI steuern
+Comment[es]=Controlar el brillo de monitores externos vía DDC/CI
+Comment[fr]=Contrôler la luminosité des moniteurs externes via DDC/CI
+Comment[pl]=Steruj jasnością zewnętrznych monitorów przez DDC/CI
+Exec=twinkle-linux
+Icon=twinkle-linux
+Terminal=false
+StartupNotify=true
+Categories=System;Utility;Settings;Qt;
+Keywords=monitor;brightness;display;ddc;ddcci;screen;light;
+Keywords[de]=Monitor;Helligkeit;Anzeige;DDC;DDCCI;Bildschirm;Licht;
+Keywords[es]=monitor;brillo;pantalla;ddc;ddcci;pantalla;luz;
+Keywords[fr]=moniteur;luminosité;affichage;ddc;ddcci;écran;lumière;
+Keywords[pl]=monitor;jasność;wyświetlacz;ddc;ddcci;ekran;światło;
+X-GNOME-Autostart-enabled=true

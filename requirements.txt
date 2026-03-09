@@ -1,0 +1,11 @@
+# Twinkle Linux - Python Dependencies
+# This file lists the required Python packages for running Twinkle Linux.
+
+# Core GUI Framework
+PyQt6>=6.4.0
+
+# Configuration Validation
+pydantic>=2.0.0
+
+# XDG Base Directory Support (for config and data paths)
+pyxdg>=0.28

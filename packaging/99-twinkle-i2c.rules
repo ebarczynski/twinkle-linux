@@ -1,0 +1,24 @@
+# Udev rules for Twinkle Linux - DDC/CI I2C device access
+# This file allows users in the i2c group to access I2C devices for monitor control
+#
+# Installation:
+#   sudo cp packaging/99-twinkle-i2c.rules /etc/udev/rules.d/
+#   sudo udevadm control --reload-rules
+#   sudo udevadm trigger
+#
+# After installing these rules, add your user to the i2c group:
+#   sudo usermod -a -G i2c $USER
+# Then log out and log back in for the changes to take effect.
+
+# Grant read/write access to i2c devices for users in the i2c group
+# This is necessary for DDC/CI communication with monitors
+KERNEL=="i2c-[0-9]*", GROUP="i2c", MODE="0660"
+
+# Alternative: Grant access to all users (less secure, use with caution)
+# Uncomment the following line if you don't want to manage group membership
+# KERNEL=="i2c-[0-9]*", MODE="0666"
+
+# Note: Some distributions may require additional configuration for
+# proper DDC/CI support. Ensure that the i2c-dev kernel module is loaded:
+#   sudo modprobe i2c-dev
+# And consider adding i2c-dev to /etc/modules-load.d/ for auto-loading on boot.

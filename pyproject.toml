@@ -1,0 +1,154 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "twinkle-linux"
+version = "0.1.0"
+description = "GUI application for controlling external monitor brightness via DDC/CI on Linux/Ubuntu"
+readme = "README.md"
+license = {text = "MIT"}
+authors = [
+    {name = "Twinkle Linux Contributors"}
+]
+maintainers = [
+    {name = "Twinkle Linux Contributors"}
+]
+keywords = [
+    "ddc",
+    "ddc-ci",
+    "monitor",
+    "brightness",
+    "control",
+    "linux",
+    "ubuntu",
+    "pyqt6",
+    "gui",
+    "system-tray",
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: X11 Applications :: Qt",
+    "Intended Audience :: End Users/Desktop",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Desktop Environment",
+    "Topic :: Multimedia :: Graphics",
+]
+requires-python = ">=3.10"
+dependencies = [
+    "PyQt6>=6.4.0",
+    "pydantic>=2.0.0",
+    "pyxdg>=0.28",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-qt>=4.0.0",
+    "pytest-cov>=4.0.0",
+    "black>=23.0.0",
+    "pylint>=2.17.0",
+    "mypy>=1.0.0",
+    "types-PyYAML>=6.0.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/twinkle-linux/twinkle-linux"
+Documentation = "https://github.com/twinkle-linux/twinkle-linux#readme"
+Repository = "https://github.com/twinkle-linux/twinkle-linux.git"
+Issues = "https://github.com/twinkle-linux/twinkle-linux/issues"
+
+[project.scripts]
+twinkle-linux = "src.main:main"
+
+[tool.setuptools]
+package-dir = {"" = "."}
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["src*"]
+exclude = ["tests*", "docs*", "scripts*", "packaging*"]
+
+[tool.black]
+line-length = 100
+target-version = ["py310", "py311", "py312"]
+include = '\.pyi?$'
+extend-exclude = '''
+/(
+  # directories
+  \.eggs
+  | \.git
+  | \.hg
+  | \.mypy_cache
+  | \.tox
+  | \.venv
+  | build
+  | dist
+)/
+'''
+
+[tool.pylint.main]
+py-version = "3.10"
+ignore = ["tests"]
+persistent = true
+jobs = 1
+
+[tool.pylint.messages_control]
+disable = [
+    "C0114",  # Missing module docstring (we use __all__)
+    "C0115",  # Missing class docstring (we use type hints)
+    "C0116",  # Missing function docstring (we use type hints)
+    "R0903",  # Too few public methods
+    "R0913",  # Too many arguments
+]
+
+[tool.pylint.format]
+max-line-length = 100
+
+[tool.mypy]
+python_version = "3.10"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+check_untyped_defs = true
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = [
+    "-v",
+    "--strict-markers",
+    "--tb=short",
+]
+markers = [
+    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+    "integration: marks tests as integration tests",
+    "unit: marks tests as unit tests",
+]
+
+[tool.coverage.run]
+source = ["src"]
+omit = [
+    "tests/*",
+    "*/__init__.py",
+]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "raise AssertionError",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+    "if TYPE_CHECKING:",
+    "@abstractmethod",
+]

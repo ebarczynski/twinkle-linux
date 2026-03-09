@@ -1,0 +1,989 @@
+/*
+ * Twinkle Linux - Default Stylesheet
+ * 
+ * This stylesheet provides a modern, professional look for the brightness popup
+ * that works well with both dark and light themes.
+ */
+
+/* Brightness Popup Container */
+#brightnessPopupContainer {
+    background-color: palette(window);
+    border: 1px solid palette(mid);
+    border-radius: 12px;
+    padding: 4px;
+}
+
+#brightnessPopupContainer:hover {
+    border-color: palette(highlight);
+}
+
+/* Brightness Popup Title */
+#brightnessPopupTitle {
+    font-size: 14px;
+    font-weight: 600;
+    color: palette(text);
+    padding: 2px 0;
+}
+
+/* Monitor Selector */
+#brightnessPopupMonitorSelector {
+    background-color: palette(base);
+    border: 1px solid palette(mid);
+    border-radius: 6px;
+    padding: 4px 8px;
+    font-size: 12px;
+    color: palette(text);
+}
+
+#brightnessPopupMonitorSelector:hover {
+    border-color: palette(highlight);
+}
+
+#brightnessPopupMonitorSelector:focus {
+    border-color: palette(highlight);
+    outline: none;
+}
+
+#brightnessPopupMonitorSelector::drop-down {
+    border: none;
+    background-color: palette(base);
+}
+
+#brightnessPopupMonitorSelector QAbstractItemView {
+    background-color: palette(base);
+    border: 1px solid palette(mid);
+    border-radius: 4px;
+    selection-background-color: palette(highlight);
+    selection-color: palette(highlighted-text);
+}
+
+/* Brightness Slider */
+BrightnessSlider QSlider::groove:horizontal {
+    height: 6px;
+    background: palette(mid);
+    border-radius: 3px;
+    margin: 2px 0;
+}
+
+BrightnessSlider QSlider::handle:horizontal {
+    width: 18px;
+    height: 18px;
+    background: palette(highlight);
+    border: 2px solid palette(window);
+    border-radius: 9px;
+    margin: -6px 0;
+}
+
+BrightnessSlider QSlider::handle:horizontal:hover {
+    background: palette(highlight);
+    border: 2px solid palette(window);
+    transform: scale(1.1);
+}
+
+BrightnessSlider QSlider::sub-page:horizontal {
+    background: palette(highlight);
+    border-radius: 3px;
+}
+
+BrightnessSlider QSlider::add-page:horizontal {
+    background: palette(mid);
+    border-radius: 3px;
+}
+
+/* Brightness Value Label */
+BrightnessSlider QLabel {
+    font-size: 13px;
+    color: palette(text);
+}
+
+/* Preset Buttons */
+#brightnessPresetButton {
+    background-color: palette(button);
+    border: 1px solid palette(mid);
+    border-radius: 6px;
+    padding: 6px 12px;
+    font-size: 12px;
+    font-weight: 500;
+    color: palette(button-text);
+    min-width: 50px;
+}
+
+#brightnessPresetButton:hover {
+    background-color: palette(midlight);
+    border-color: palette(highlight);
+}
+
+#brightnessPresetButton:pressed {
+    background-color: palette(mid);
+}
+
+#brightnessPresetButton:focus {
+    border-color: palette(highlight);
+    outline: none;
+}
+
+/* Status Label */
+#brightnessPopupStatus {
+    font-size: 11px;
+    color: palette(text);
+    padding: 4px;
+    background-color: transparent;
+}
+
+#brightnessPopupStatus[error="true"] {
+    color: #e74c3c;
+    background-color: rgba(231, 76, 60, 0.1);
+    border-radius: 4px;
+}
+
+/* VCP Controls Styles */
+#vcpControlLabel {
+    font-size: 13px;
+    font-weight: 500;
+    color: palette(text);
+    padding: 2px 0;
+}
+
+#vcpControlValueLabel {
+    font-size: 12px;
+    color: palette(text);
+    min-width: 40px;
+    text-align: right;
+}
+
+#vcpSlider {
+    background-color: transparent;
+    border: none;
+    padding: 4px 0;
+}
+
+#vcpSlider QSlider::groove:horizontal {
+    height: 4px;
+    background: palette(mid);
+    border-radius: 2px;
+    margin: 2px 0;
+}
+
+#vcpSlider QSlider::handle:horizontal {
+    width: 14px;
+    height: 14px;
+    background: palette(highlight);
+    border: 2px solid palette(window);
+    border-radius: 7px;
+    margin: -5px 0;
+}
+
+#vcpSlider QSlider::handle:horizontal:hover {
+    background: palette(highlight);
+    border: 2px solid palette(window);
+    transform: scale(1.1);
+}
+
+#vcpSlider QSlider::sub-page:horizontal {
+    background: palette(highlight);
+    border-radius: 2px;
+}
+
+#vcpSlider QSlider::add-page:horizontal {
+    background: palette(mid);
+    border-radius: 2px;
+}
+
+#vcpComboBox {
+    background-color: palette(base);
+    border: 1px solid palette(mid);
+    border-radius: 6px;
+    padding: 4px 8px;
+    font-size: 12px;
+    color: palette(text);
+    min-width: 150px;
+}
+
+#vcpComboBox:hover {
+    border-color: palette(highlight);
+}
+
+#vcpComboBox:focus {
+    border-color: palette(highlight);
+    outline: none;
+}
+
+#vcpComboBox::drop-down {
+    border: none;
+    background-color: palette(base);
+}
+
+#vcpComboBox QAbstractItemView {
+    background-color: palette(base);
+    border: 1px solid palette(mid);
+    border-radius: 4px;
+    selection-background-color: palette(highlight);
+    selection-color: palette(highlighted-text);
+}
+
+#vcpControlSection {
+    background-color: transparent;
+    border: none;
+    border-radius: 0;
+    padding: 0;
+    margin: 0;
+}
+
+#vcpSectionTitle {
+    font-size: 12px;
+    font-weight: 600;
+    color: palette(text);
+    padding: 4px 0;
+}
+
+/* Tab Widget Styles */
+#brightnessPopupTabWidget {
+    background-color: transparent;
+    border: none;
+}
+
+#brightnessPopupTabWidget::pane {
+    border: none;
+    background-color: transparent;
+}
+
+#brightnessPopupTabWidget QTabBar::tab {
+    background-color: palette(base);
+    border: 1px solid palette(mid);
+    border-bottom: none;
+    border-top-left-radius: 6px;
+    border-top-right-radius: 6px;
+    padding: 6px 12px;
+    margin-right: 2px;
+    font-size: 12px;
+    font-weight: 500;
+    color: palette(text);
+}
+
+#brightnessPopupTabWidget QTabBar::tab:selected {
+    background-color: palette(highlight);
+    color: palette(highlighted-text);
+}
+
+#brightnessPopupTabWidget QTabBar::tab:hover:!selected {
+    background-color: palette(midlight);
+    color: palette(text);
+}
+
+/* Dark Theme Adjustments for VCP Controls */
+[palette="dark"] #vcpControlLabel,
+[palette="dark"] #vcpSectionTitle {
+    color: #ffffff;
+}
+
+[palette="dark"] #vcpControlValueLabel {
+    color: #ffffff;
+}
+
+[palette="dark"] #vcpSlider QSlider::groove:horizontal {
+    background: #454545;
+}
+
+[palette="dark"] #vcpSlider QSlider::handle:horizontal {
+    background: #4a90d9;
+    border: 2px solid #2d2d2d;
+}
+
+[palette="dark"] #vcpSlider QSlider::sub-page:horizontal {
+    background: #4a90d9;
+}
+
+[palette="dark"] #vcpSlider QSlider::add-page:horizontal {
+    background: #454545;
+}
+
+[palette="dark"] #vcpComboBox {
+    background-color: #3d3d3d;
+    border-color: #454545;
+    color: #ffffff;
+}
+
+[palette="dark"] #vcpComboBox:hover,
+[palette="dark"] #vcpComboBox:focus {
+    border-color: #4a90d9;
+}
+
+[palette="dark"] #vcpComboBox QAbstractItemView {
+    background-color: #3d3d3d;
+    border-color: #454545;
+    selection-background-color: #4a90d9;
+    selection-color: #ffffff;
+}
+
+[palette="dark"] #brightnessPopupTabWidget QTabBar::tab {
+    background-color: #3d3d3d;
+    border-color: #454545;
+    color: #cccccc;
+}
+
+[palette="dark"] #brightnessPopupTabWidget QTabBar::tab:selected {
+    background-color: #4a90d9;
+    color: #ffffff;
+}
+
+[palette="dark"] #brightnessPopupTabWidget QTabBar::tab:hover:!selected {
+    background-color: #4d4d4d;
+    color: #ffffff;
+}
+
+/* Light Theme Adjustments for VCP Controls */
+[palette="light"] #vcpControlLabel,
+[palette="light"] #vcpSectionTitle {
+    color: #333333;
+}
+
+[palette="light"] #vcpControlValueLabel {
+    color: #333333;
+}
+
+[palette="light"] #vcpSlider QSlider::groove:horizontal {
+    background: #e0e0e0;
+}
+
+[palette="light"] #vcpSlider QSlider::handle:horizontal {
+    background: #4a90d9;
+    border: 2px solid #ffffff;
+}
+
+[palette="light"] #vcpSlider QSlider::sub-page:horizontal {
+    background: #4a90d9;
+}
+
+[palette="light"] #vcpSlider QSlider::add-page:horizontal {
+    background: #e0e0e0;
+}
+
+[palette="light"] #vcpComboBox {
+    background-color: #f5f5f5;
+    border-color: #d0d0d0;
+    color: #333333;
+}
+
+[palette="light"] #vcpComboBox:hover,
+[palette="light"] #vcpComboBox:focus {
+    border-color: #4a90d9;
+}
+
+[palette="light"] #vcpComboBox QAbstractItemView {
+    background-color: #f5f5f5;
+    border-color: #d0d0d0;
+    selection-background-color: #4a90d9;
+    selection-color: #ffffff;
+}
+
+[palette="light"] #brightnessPopupTabWidget QTabBar::tab {
+    background-color: #f5f5f5;
+    border-color: #d0d0d0;
+    color: #666666;
+}
+
+[palette="light"] #brightnessPopupTabWidget QTabBar::tab:selected {
+    background-color: #4a90d9;
+    color: #ffffff;
+}
+
+[palette="light"] #brightnessPopupTabWidget QTabBar::tab:hover:!selected {
+    background-color: #e5e5e5;
+    color: #333333;
+}
+
+/* Dark Theme Adjustments */
+[palette="dark"] #brightnessPopupContainer {
+    background-color: #2d2d2d;
+    border-color: #454545;
+}
+
+[palette="dark"] #brightnessPopupContainer:hover {
+    border-color: #4a90d9;
+}
+
+[palette="dark"] #brightnessPopupTitle {
+    color: #ffffff;
+}
+
+[palette="dark"] #brightnessPopupMonitorSelector {
+    background-color: #3d3d3d;
+    border-color: #454545;
+    color: #ffffff;
+}
+
+[palette="dark"] #brightnessPopupMonitorSelector:hover,
+[palette="dark"] #brightnessPopupMonitorSelector:focus {
+    border-color: #4a90d9;
+}
+
+[palette="dark"] #brightnessPopupMonitorSelector QAbstractItemView {
+    background-color: #3d3d3d;
+    border-color: #454545;
+    selection-background-color: #4a90d9;
+    selection-color: #ffffff;
+}
+
+[palette="dark"] BrightnessSlider QSlider::groove:horizontal {
+    background: #454545;
+}
+
+[palette="dark"] BrightnessSlider QSlider::handle:horizontal {
+    background: #4a90d9;
+    border: 2px solid #2d2d2d;
+}
+
+[palette="dark"] BrightnessSlider QSlider::sub-page:horizontal {
+    background: #4a90d9;
+}
+
+[palette="dark"] BrightnessSlider QSlider::add-page:horizontal {
+    background: #454545;
+}
+
+[palette="dark"] BrightnessSlider QLabel {
+    color: #ffffff;
+}
+
+[palette="dark"] #brightnessPresetButton {
+    background-color: #3d3d3d;
+    border-color: #454545;
+    color: #ffffff;
+}
+
+[palette="dark"] #brightnessPresetButton:hover {
+    background-color: #4d4d4d;
+    border-color: #4a90d9;
+}
+
+[palette="dark"] #brightnessPresetButton:pressed {
+    background-color: #454545;
+}
+
+[palette="dark"] #brightnessPopupStatus {
+    color: #cccccc;
+}
+
+/* Light Theme Adjustments */
+[palette="light"] #brightnessPopupContainer {
+    background-color: #ffffff;
+    border-color: #d0d0d0;
+}
+
+[palette="light"] #brightnessPopupContainer:hover {
+    border-color: #4a90d9;
+}
+
+[palette="light"] #brightnessPopupTitle {
+    color: #333333;
+}
+
+[palette="light"] #brightnessPopupMonitorSelector {
+    background-color: #f5f5f5;
+    border-color: #d0d0d0;
+    color: #333333;
+}
+
+[palette="light"] #brightnessPopupMonitorSelector:hover,
+[palette="light"] #brightnessPopupMonitorSelector:focus {
+    border-color: #4a90d9;
+}
+
+[palette="light"] #brightnessPopupMonitorSelector QAbstractItemView {
+    background-color: #f5f5f5;
+    border-color: #d0d0d0;
+    selection-background-color: #4a90d9;
+    selection-color: #ffffff;
+}
+
+[palette="light"] BrightnessSlider QSlider::groove:horizontal {
+    background: #e0e0e0;
+}
+
+[palette="light"] BrightnessSlider QSlider::handle:horizontal {
+    background: #4a90d9;
+    border: 2px solid #ffffff;
+}
+
+[palette="light"] BrightnessSlider QSlider::sub-page:horizontal {
+    background: #4a90d9;
+}
+
+[palette="light"] BrightnessSlider QSlider::add-page:horizontal {
+    background: #e0e0e0;
+}
+
+[palette="light"] BrightnessSlider QLabel {
+    color: #333333;
+}
+
+[palette="light"] #brightnessPresetButton {
+    background-color: #f5f5f5;
+    border-color: #d0d0d0;
+    color: #333333;
+}
+
+[palette="light"] #brightnessPresetButton:hover {
+    background-color: #e5e5e5;
+    border-color: #4a90d9;
+}
+
+[palette="light"] #brightnessPresetButton:pressed {
+    background-color: #d0d0d0;
+}
+
+[palette="light"] #brightnessPopupStatus {
+    color: #666666;
+}
+
+/* ========================================
+ * Settings Dialog Styles
+ * ======================================== */
+
+/* Settings Dialog */
+SettingsDialog {
+    background-color: palette(window);
+}
+
+/* Tab Widget */
+SettingsDialog QTabWidget::pane {
+    border: 1px solid palette(mid);
+    border-radius: 4px;
+    top: -1px;
+}
+
+SettingsDialog QTabBar::tab {
+    background: palette(button);
+    border: 1px solid palette(mid);
+    border-bottom: none;
+    border-top-left-radius: 4px;
+    border-top-right-radius: 4px;
+    padding: 8px 16px;
+    margin-right: 2px;
+}
+
+SettingsDialog QTabBar::tab:selected {
+    background: palette(window);
+    border-bottom: 1px solid palette(window);
+}
+
+SettingsDialog QTabBar::tab:hover {
+    background: palette(midlight);
+}
+
+/* Group Box */
+SettingsDialog QGroupBox {
+    font-weight: 600;
+    border: 1px solid palette(mid);
+    border-radius: 6px;
+    margin-top: 12px;
+    padding-top: 8px;
+}
+
+SettingsDialog QGroupBox::title {
+    subcontrol-origin: margin;
+    left: 10px;
+    padding: 0 4px;
+}
+
+/* Labels */
+SettingsDialog QLabel {
+    color: palette(text);
+}
+
+/* Checkbox */
+SettingsDialog QCheckBox {
+    color: palette(text);
+    spacing: 6px;
+}
+
+SettingsDialog QCheckBox::indicator {
+    width: 18px;
+    height: 18px;
+    border: 2px solid palette(mid);
+    border-radius: 3px;
+    background: palette(base);
+}
+
+SettingsDialog QCheckBox::indicator:checked {
+    background: palette(highlight);
+    border-color: palette(highlight);
+}
+
+SettingsDialog QCheckBox::indicator:hover {
+    border-color: palette(highlight);
+}
+
+/* Combo Box */
+SettingsDialog QComboBox {
+    background: palette(base);
+    border: 1px solid palette(mid);
+    border-radius: 4px;
+    padding: 4px 8px;
+    color: palette(text);
+}
+
+SettingsDialog QComboBox:hover {
+    border-color: palette(highlight);
+}
+
+SettingsDialog QComboBox:focus {
+    border-color: palette(highlight);
+}
+
+SettingsDialog QComboBox::drop-down {
+    border: none;
+    background: transparent;
+}
+
+SettingsDialog QComboBox QAbstractItemView {
+    background: palette(base);
+    border: 1px solid palette(mid);
+    border-radius: 4px;
+    selection-background-color: palette(highlight);
+    selection-color: palette(highlighted-text);
+}
+
+/* Slider */
+SettingsDialog QSlider::groove:horizontal {
+    height: 6px;
+    background: palette(mid);
+    border-radius: 3px;
+}
+
+SettingsDialog QSlider::handle:horizontal {
+    width: 16px;
+    height: 16px;
+    background: palette(highlight);
+    border: 2px solid palette(window);
+    border-radius: 8px;
+    margin: -5px 0;
+}
+
+SettingsDialog QSlider::handle:horizontal:hover {
+    background: palette(highlight);
+}
+
+SettingsDialog QSlider::sub-page:horizontal {
+    background: palette(highlight);
+    border-radius: 3px;
+}
+
+SettingsDialog QSlider::add-page:horizontal {
+    background: palette(mid);
+    border-radius: 3px;
+}
+
+/* Spin Box */
+SettingsDialog QSpinBox {
+    background: palette(base);
+    border: 1px solid palette(mid);
+    border-radius: 4px;
+    padding: 4px;
+    color: palette(text);
+}
+
+SettingsDialog QSpinBox:hover {
+    border-color: palette(highlight);
+}
+
+SettingsDialog QSpinBox:focus {
+    border-color: palette(highlight);
+}
+
+SettingsDialog QSpinBox::up-button,
+SettingsDialog QSpinBox::down-button {
+    border: none;
+    background: transparent;
+    width: 16px;
+}
+
+SettingsDialog QSpinBox::up-button:hover,
+SettingsDialog QSpinBox::down-button:hover {
+    background: palette(midlight);
+}
+
+/* List Widget */
+SettingsDialog QListWidget {
+    background: palette(base);
+    border: 1px solid palette(mid);
+    border-radius: 4px;
+    color: palette(text);
+}
+
+SettingsDialog QListWidget::item {
+    padding: 6px 8px;
+}
+
+SettingsDialog QListWidget::item:selected {
+    background: palette(highlight);
+    color: palette(highlighted-text);
+}
+
+SettingsDialog QListWidget::item:hover {
+    background: palette(midlight);
+}
+
+/* Buttons */
+SettingsDialog QPushButton {
+    background: palette(button);
+    border: 1px solid palette(mid);
+    border-radius: 4px;
+    padding: 6px 16px;
+    color: palette(button-text);
+    font-weight: 500;
+}
+
+SettingsDialog QPushButton:hover {
+    background: palette(midlight);
+    border-color: palette(highlight);
+}
+
+SettingsDialog QPushButton:pressed {
+    background: palette(mid);
+}
+
+SettingsDialog QPushButton:focus {
+    border-color: palette(highlight);
+}
+
+/* Dialog Button Box */
+SettingsDialog QDialogButtonBox QPushButton {
+    min-width: 80px;
+}
+
+/* Dark Theme Adjustments for Settings Dialog */
+[palette="dark"] SettingsDialog QTabWidget::pane {
+    border-color: #454545;
+}
+
+[palette="dark"] SettingsDialog QTabBar::tab {
+    background: #3d3d3d;
+    border-color: #454545;
+    color: #ffffff;
+}
+
+[palette="dark"] SettingsDialog QTabBar::tab:selected {
+    background: #2d2d2d;
+}
+
+[palette="dark"] SettingsDialog QTabBar::tab:hover {
+    background: #4d4d4d;
+}
+
+[palette="dark"] SettingsDialog QGroupBox {
+    border-color: #454545;
+    color: #ffffff;
+}
+
+[palette="dark"] SettingsDialog QLabel {
+    color: #ffffff;
+}
+
+[palette="dark"] SettingsDialog QCheckBox {
+    color: #ffffff;
+}
+
+[palette="dark"] SettingsDialog QCheckBox::indicator {
+    background: #3d3d3d;
+    border-color: #454545;
+}
+
+[palette="dark"] SettingsDialog QCheckBox::indicator:checked {
+    background: #4a90d9;
+    border-color: #4a90d9;
+}
+
+[palette="dark"] SettingsDialog QComboBox {
+    background: #3d3d3d;
+    border-color: #454545;
+    color: #ffffff;
+}
+
+[palette="dark"] SettingsDialog QComboBox:hover,
+[palette="dark"] SettingsDialog QComboBox:focus {
+    border-color: #4a90d9;
+}
+
+[palette="dark"] SettingsDialog QComboBox QAbstractItemView {
+    background: #3d3d3d;
+    border-color: #454545;
+    selection-background-color: #4a90d9;
+    selection-color: #ffffff;
+}
+
+[palette="dark"] SettingsDialog QSlider::groove:horizontal {
+    background: #454545;
+}
+
+[palette="dark"] SettingsDialog QSlider::handle:horizontal {
+    background: #4a90d9;
+    border: 2px solid #2d2d2d;
+}
+
+[palette="dark"] SettingsDialog QSlider::sub-page:horizontal {
+    background: #4a90d9;
+}
+
+[palette="dark"] SettingsDialog QSlider::add-page:horizontal {
+    background: #454545;
+}
+
+[palette="dark"] SettingsDialog QSpinBox {
+    background: #3d3d3d;
+    border-color: #454545;
+    color: #ffffff;
+}
+
+[palette="dark"] SettingsDialog QSpinBox:hover,
+[palette="dark"] SettingsDialog QSpinBox:focus {
+    border-color: #4a90d9;
+}
+
+[palette="dark"] SettingsDialog QListWidget {
+    background: #3d3d3d;
+    border-color: #454545;
+    color: #ffffff;
+}
+
+[palette="dark"] SettingsDialog QListWidget::item:selected {
+    background: #4a90d9;
+    color: #ffffff;
+}
+
+[palette="dark"] SettingsDialog QListWidget::item:hover {
+    background: #4d4d4d;
+}
+
+[palette="dark"] SettingsDialog QPushButton {
+    background: #3d3d3d;
+    border-color: #454545;
+    color: #ffffff;
+}
+
+[palette="dark"] SettingsDialog QPushButton:hover {
+    background: #4d4d4d;
+    border-color: #4a90d9;
+}
+
+[palette="dark"] SettingsDialog QPushButton:pressed {
+    background: #454545;
+}
+
+/* Light Theme Adjustments for Settings Dialog */
+[palette="light"] SettingsDialog QTabWidget::pane {
+    border-color: #d0d0d0;
+}
+
+[palette="light"] SettingsDialog QTabBar::tab {
+    background: #f5f5f5;
+    border-color: #d0d0d0;
+    color: #333333;
+}
+
+[palette="light"] SettingsDialog QTabBar::tab:selected {
+    background: #ffffff;
+}
+
+[palette="light"] SettingsDialog QTabBar::tab:hover {
+    background: #e5e5e5;
+}
+
+[palette="light"] SettingsDialog QGroupBox {
+    border-color: #d0d0d0;
+    color: #333333;
+}
+
+[palette="light"] SettingsDialog QLabel {
+    color: #333333;
+}
+
+[palette="light"] SettingsDialog QCheckBox {
+    color: #333333;
+}
+
+[palette="light"] SettingsDialog QCheckBox::indicator {
+    background: #ffffff;
+    border-color: #d0d0d0;
+}
+
+[palette="light"] SettingsDialog QCheckBox::indicator:checked {
+    background: #4a90d9;
+    border-color: #4a90d9;
+}
+
+[palette="light"] SettingsDialog QComboBox {
+    background: #ffffff;
+    border-color: #d0d0d0;
+    color: #333333;
+}
+
+[palette="light"] SettingsDialog QComboBox:hover,
+[palette="light"] SettingsDialog QComboBox:focus {
+    border-color: #4a90d9;
+}
+
+[palette="light"] SettingsDialog QComboBox QAbstractItemView {
+    background: #ffffff;
+    border-color: #d0d0d0;
+    selection-background-color: #4a90d9;
+    selection-color: #ffffff;
+}
+
+[palette="light"] SettingsDialog QSlider::groove:horizontal {
+    background: #e0e0e0;
+}
+
+[palette="light"] SettingsDialog QSlider::handle:horizontal {
+    background: #4a90d9;
+    border: 2px solid #ffffff;
+}
+
+[palette="light"] SettingsDialog QSlider::sub-page:horizontal {
+    background: #4a90d9;
+}
+
+[palette="light"] SettingsDialog QSlider::add-page:horizontal {
+    background: #e0e0e0;
+}
+
+[palette="light"] SettingsDialog QSpinBox {
+    background: #ffffff;
+    border-color: #d0d0d0;
+    color: #333333;
+}
+
+[palette="light"] SettingsDialog QSpinBox:hover,
+[palette="light"] SettingsDialog QSpinBox:focus {
+    border-color: #4a90d9;
+}
+
+[palette="light"] SettingsDialog QListWidget {
+    background: #ffffff;
+    border-color: #d0d0d0;
+    color: #333333;
+}
+
+[palette="light"] SettingsDialog QListWidget::item:selected {
+    background: #4a90d9;
+    color: #ffffff;
+}
+
+[palette="light"] SettingsDialog QListWidget::item:hover {
+    background: #f5f5f5;
+}
+
+[palette="light"] SettingsDialog QPushButton {
+    background: #ffffff;
+    border-color: #d0d0d0;
+    color: #333333;
+}
+
+[palette="light"] SettingsDialog QPushButton:hover {
+    background: #f5f5f5;
+    border-color: #4a90d9;
+}
+
+[palette="light"] SettingsDialog QPushButton:pressed {
+    background: #e0e0e0;
+}

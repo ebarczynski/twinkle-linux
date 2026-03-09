@@ -1,0 +1,88 @@
+name: twinkle-linux
+base: core22
+version: '0.1.0'
+summary: Control external monitor brightness via DDC/CI
+description: |
+  Twinkle Linux provides system tray integration for easy brightness control
+  of external monitors connected via DisplayPort or HDMI. It uses the DDC/CI
+  (Display Data Channel Command Interface) protocol to communicate with
+  monitors, allowing you to adjust brightness, contrast, and other settings
+  directly from your desktop.
+
+grade: stable
+confinement: strict
+
+license: MIT
+
+apps:
+  twinkle-linux:
+    command: bin/twinkle-linux
+    command-chain: [bin/desktop-launch]
+    common-id: com.github.twinkle-twinkle.TwinkleLinux
+    desktop: share/applications/twinkle-linux.desktop
+    extensions:
+      - kde6
+    plugs:
+      - desktop
+      - desktop-legacy
+      - wayland
+      - x11
+      - unity7
+      - hardware-observe
+      - i2c
+      - network
+      - network-bind
+    environment:
+      PYTHONPATH: $SNAP/lib/python3.10/site-packages:$SNAP/lib/twinkle-linux:$PYTHONPATH
+      QT_QPA_PLATFORM: wayland
+
+parts:
+  twinkle-linux:
+    plugin: dump
+    source: ../..
+    organize:
+      src/main.py: bin/twinkle-linux
+      src: lib/twinkle-linux
+    override-build: |
+      snapcraftctl build
+      # Ensure the main script is executable
+      chmod +x $SNAPCRAFT_PART_INSTALL/bin/twinkle-linux
+
+  ddcutil:
+    plugin: autotools
+    source: https://www.ddcutil.com/tarballs/ddcutil-2.1.4.tar.gz
+    build-packages:
+      - libusb-1.0-0-dev
+      - libi2c-dev
+      - libdrm-dev
+    stage-packages:
+      - libusb-1.0-0
+      - libi2c0
+      - libdrm2
+
+  python-packages:
+    plugin: python
+    source: .
+    python-packages:
+      - PyQt6>=6.4.0
+      - pydantic>=2.0.0
+      - pyxdg>=0.28
+    override-build: |
+      snapcraftctl build
+      # Clean up unnecessary files
+      find $SNAPCRAFT_PART_INSTALL/lib/python3.10/site-packages -type d -name __pycache__ -exec rm -rf {} + || true
+      find $SNAPCRAFT_PART_INSTALL/lib/python3.10/site-packages -type f -name '*.pyc' -delete || true
+
+  desktop-integration:
+    plugin: dump
+    source: ../..
+    organize:
+      packaging/twinkle-linux.desktop: share/applications/twinkle-linux.desktop
+      src/ui/resources/icons/twinkle.svg: share/icons/hicolor/scalable/apps/twinkle-linux.svg
+    stage:
+      - share/applications/twinkle-linux.desktop
+      - share/icons/hicolor/scalable/apps/twinkle-linux.svg
+
+plugs:
+  i2c:
+    interface: raw-usb

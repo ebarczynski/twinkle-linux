@@ -1,0 +1,42 @@
+Context Length	
+24.8k
+200.0k
+
+Tokens	
+↑ 298.2k
+↓ 1.8k
+Cache	
+274.9k
+API Cost	$0.05
+Size	140 kB
+
+ Date/time: 2026-03-06T09:24:33.649Z
+Extension version: 3.51.0
+Provider: zai
+Model: glm-4.7
+
+Request timed out.
+
+Date/time: 2026-03-06T09:24:33.650Z
+Extension version: 3.51.0
+Provider: zai
+Model: glm-4.7
+
+429
+429 Rate limit reached for requests
+
+Date/time: 2026-03-06T09:24:33.650Z
+Extension version: 3.51.0
+Provider: zai
+Model: glm-4.7
+
+429
+429 Rate limit reached for requests
+
+Date/time: 2026-03-06T09:33:11.452Z
+Extension version: 3.51.0
+Provider: zai
+Model: glm-4.7
+
+429
+429 Rate limit reached for requests

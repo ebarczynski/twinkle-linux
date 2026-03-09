@@ -1,0 +1,53 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <defs>
+    <linearGradient id="screenGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#4a90d9;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#357abd;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="sunGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#ffd93d;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#f5c800;stop-opacity:1" />
+    </linearGradient>
+    <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="2" result="coloredBlur"/>
+      <feMerge>
+        <feMergeNode in="coloredBlur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <!-- Monitor Stand -->
+  <rect x="26" y="48" width="12" height="4" rx="1" fill="#555" />
+  <rect x="22" y="52" width="20" height="3" rx="1.5" fill="#444" />
+  <ellipse cx="32" cy="55" rx="14" ry="2" fill="#333" opacity="0.5" />
+
+  <!-- Monitor Frame -->
+  <rect x="6" y="8" width="52" height="40" rx="3" fill="#333" />
+  <rect x="8" y="10" width="48" height="36" rx="2" fill="#222" />
+
+  <!-- Screen -->
+  <rect x="10" y="12" width="44" height="32" rx="1" fill="url(#screenGradient)" />
+
+  <!-- Sun/Brightness Icon -->
+  <g filter="url(#glow)">
+    <!-- Sun rays -->
+    <line x1="32" y1="18" x2="32" y2="15" stroke="url(#sunGradient)" stroke-width="2" stroke-linecap="round" />
+    <line x1="32" y1="38" x2="32" y2="41" stroke="url(#sunGradient)" stroke-width="2" stroke-linecap="round" />
+    <line x1="22" y1="28" x2="19" y2="28" stroke="url(#sunGradient)" stroke-width="2" stroke-linecap="round" />
+    <line x1="42" y1="28" x2="45" y2="28" stroke="url(#sunGradient)" stroke-width="2" stroke-linecap="round" />
+    <line x1="24.5" y1="20.5" x2="22.5" y2="18.5" stroke="url(#sunGradient)" stroke-width="2" stroke-linecap="round" />
+    <line x1="39.5" y1="35.5" x2="41.5" y2="37.5" stroke="url(#sunGradient)" stroke-width="2" stroke-linecap="round" />
+    <line x1="24.5" y1="35.5" x2="22.5" y2="37.5" stroke="url(#sunGradient)" stroke-width="2" stroke-linecap="round" />
+    <line x1="39.5" y1="20.5" x2="41.5" y2="18.5" stroke="url(#sunGradient)" stroke-width="2" stroke-linecap="round" />
+
+    <!-- Sun circle -->
+    <circle cx="32" cy="28" r="7" fill="url(#sunGradient)" />
+  </g>
+
+  <!-- Twinkle stars -->
+  <g fill="#fff" opacity="0.8">
+    <polygon points="50,16 51,19 54,20 51,21 50,24 49,21 46,20 49,19" />
+    <polygon points="14,36 14.5,38 16.5,38.5 14.5,39 14,41 13.5,39 11.5,38.5 13.5,38" />
+  </g>
+</svg>

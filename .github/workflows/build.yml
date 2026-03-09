@@ -1,0 +1,79 @@
+name: Build Twinkle Linux (Rust)
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build-linux:
+    name: Build for Linux
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Install Rust toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ddcutil libgtk-4-dev pkg-config
+          
+      - name: Cache cargo registry
+        uses: actions/cache@v3
+        with:
+          path: ~/.cargo/registry
+          key: ${{ runner.os }}-cargo-registry-index
+          
+      - name: Build release binary
+        run: |
+          cd twinkle-rust
+          cargo build --release --target x86_64-unknown-linux-gnu
+          
+      - name: Upload artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: twinkle-linux-x86_64
+          path: twinkle-rust/target/x86_64-unknown-linux-gnu/release/twinkle-linux
+          
+  build-arm64:
+    name: Build for ARM64 Linux
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Install Rust toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          targets: aarch64-unknown-linux-gnu
+          
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ddcutil libgtk-4-dev pkg-config
+          
+      - name: Cache cargo registry
+        uses: actions/cache@v3
+        with:
+          path: ~/.cargo/registry
+          key: ${{ runner.os }}-cargo-registry-index-aarch64
+          
+      - name: Build release binary
+        run: |
+          cd twinkle-rust
+          cargo build --release --target aarch64-unknown-linux-gnu
+          
+      - name: Upload artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: twinkle-linux-aarch64
+          path: twinkle-rust/target/aarch64-unknown-linux-gnu/release/twinkle-linux
