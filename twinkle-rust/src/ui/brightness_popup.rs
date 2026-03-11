@@ -37,7 +37,7 @@ pub struct BrightnessPopup {
 impl BrightnessPopup {
     /// Create a new brightness popup.
     pub async fn new(
-        parent: &impl IsA<gtk4::Widget>,
+        _parent: &impl IsA<gtk4::Widget>,
         ddc_manager: Arc<DDCManager>,
         config_manager: Arc<Mutex<ConfigManager>>,
     ) -> Self {
@@ -98,7 +98,7 @@ impl BrightnessPopup {
         }
 
         // Create VCP controls
-        let vcp_controls = VCPControlsContainer::new();
+        let mut vcp_controls = VCPControlsContainer::new();
         vcp_controls.add_sections(&[0x12, 0x14, 0x60, 0x62]); // Contrast, Color Temp, Input Source, Volume
 
         // Add all widgets to container
@@ -202,10 +202,9 @@ impl BrightnessPopup {
             let ddc_manager = ddc_manager.clone();
             let current_monitor_id = current_monitor_id.clone();
             let brightness_slider = brightness_slider.clone();
+            let selected_id = combo.active_id();
 
             glib::spawn_future_local(async move {
-                let selected_id = combo.active_id();
-
                 if let Some(id) = selected_id {
                     if id == "all" {
                         *current_monitor_id.lock().await = None;
@@ -238,11 +237,12 @@ impl BrightnessPopup {
         timer: Arc<Mutex<Option<glib::SourceId>>>,
         delay_ms: u32,
     ) {
+        let timer_clone = timer.clone();
         glib::spawn_future_local(async move {
-            let mut timer = timer.lock().await;
+            let mut timer_guard = timer.lock().await;
 
             // Remove existing timer
-            if let Some(source_id) = timer.take() {
+            if let Some(source_id) = timer_guard.take() {
                 source_id.remove();
             }
 
@@ -252,7 +252,6 @@ impl BrightnessPopup {
             }
 
             // Set new timer
-            let timer_clone = timer.clone();
             let source_id = glib::timeout_add_local_once(
                 std::time::Duration::from_millis(delay_ms as u64),
                 move || {
@@ -262,7 +261,7 @@ impl BrightnessPopup {
                 },
             );
 
-            *timer = Some(source_id);
+            *timer_guard = Some(source_id);
         });
     }
 

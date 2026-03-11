@@ -431,8 +431,8 @@ impl SettingsDialog {
     }
 
     /// Run the dialog and return the response.
-    pub fn run(&self) -> gtk4::ResponseType {
-        self.dialog.run()
+    pub fn run(&self) {
+        self.dialog.present();
     }
 
     /// Get the dialog widget.

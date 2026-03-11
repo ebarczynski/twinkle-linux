@@ -106,7 +106,7 @@ impl DDCManager {
 
     /// Check if DDC/CI is available on the system.
     pub async fn is_available(&self) -> bool {
-        let executor = self.executor.lock().await;
+        let mut executor = self.executor.lock().await;
         executor.check_ddcutil_available()
     }
 

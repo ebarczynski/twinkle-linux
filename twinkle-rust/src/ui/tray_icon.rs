@@ -131,8 +131,9 @@ pub fn setup_tray_actions(app: &Application) {
 
     // Quit action
     let quit = gio::SimpleAction::new("quit", None);
-    quit.connect_activate(|_, app: &gio::Application| {
-        app.quit();
+    let app_clone = app.clone();
+    quit.connect_activate(move |_, _value: Option<&glib::Variant>| {
+        app_clone.quit();
     });
     app.add_action(&quit);
 }
