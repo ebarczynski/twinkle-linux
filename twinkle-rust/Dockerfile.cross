@@ -1,0 +1,20 @@
+# Custom Docker image for cross-compiling Twinkle Linux with GTK4 support
+# Based on cross-rs x86_64-unknown-linux-gnu image
+FROM ghcr.io/cross-rs/x86_64-unknown-linux-gnu:main
+
+# Install GTK4 and related dependencies for Linux
+RUN apt-get update && apt-get install -y \
+    libgtk-4-dev \
+    libglib2.0-dev \
+    libpango1.0-dev \
+    libcairo2-dev \
+    libatk1.0-dev \
+    libgdk-pixbuf-2.0-dev \
+    libgraphene-1.0-dev \
+    libadwaita-1-dev \
+    pkg-config \
+    && rm -rf /var/lib/apt/lists/*
+
+# Set environment variables for pkg-config
+ENV PKG_CONFIG_PATH=/usr/lib/x86_64-linux-gnu/pkgconfig
+ENV PKG_CONFIG_LIBDIR=/usr/lib/x86_64-linux-gnu/pkgconfig

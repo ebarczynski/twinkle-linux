@@ -1,0 +1,31 @@
+# Cross-compilation configuration for Twinkle Linux
+# See: https://github.com/cross-rs/cross
+
+[build]
+# Build directory
+target = "target"
+
+[build.env]
+# Pass through environment variables
+passthrough = [
+    "RUSTFLAGS",
+    "CARGO_TERM_COLOR",
+]
+
+[target.x86_64-unknown-linux-gnu]
+# Use default cross-rs image
+# Note: GTK4 dependencies are not included in default images
+# You may need to install them manually or use a custom image
+image = "ghcr.io/cross-rs/x86_64-unknown-linux-gnu:main"
+
+[target.x86_64-unknown-linux-musl]
+# For musl-based Linux (static linking)
+image = "ghcr.io/cross-rs/x86_64-unknown-linux-musl:main"
+
+[target.aarch64-unknown-linux-gnu]
+# For ARM64 Linux (e.g., Raspberry Pi 4, ARM servers)
+image = "ghcr.io/cross-rs/aarch64-unknown-linux-gnu:main"
+
+[target.armv7-unknown-linux-gnueabihf]
+# For ARMv7 Linux (e.g., older Raspberry Pi)
+image = "ghcr.io/cross-rs/armv7-unknown-linux-gnueabihf:main"
