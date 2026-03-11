@@ -2,7 +2,7 @@
 
 use crate::ddc::error::{CommandExecutionError, DDCError, DDCResult};
 use regex::Regex;
-use std::process::{Command, Output};
+use std::process::Command;
 use std::time::Duration;
 use tokio::time::timeout as tokio_timeout;
 
@@ -182,10 +182,15 @@ impl CommandExecutor {
     async fn _execute_single(&self, ddcutil_path: &str, args: &[&str]) -> DDCResult<CommandResult> {
         let timeout_duration = Duration::from_secs_f64(self.timeout_secs);
 
+        // Clone to owned types for moving to spawn_blocking
+        let ddcutil_path = ddcutil_path.to_string();
+        let args: Vec<String> = args.iter().map(|s| s.to_string()).collect();
+        let command_str = format!("{} {}", ddcutil_path, args.join(" "));
+
         let output = tokio_timeout(timeout_duration, async {
             tokio::task::spawn_blocking(move || {
-                Command::new(ddcutil_path)
-                    .args(args)
+                Command::new(&ddcutil_path)
+                    .args(&args)
                     .output()
             })
             .await
@@ -206,7 +211,7 @@ impl CommandExecutor {
             stdout,
             stderr,
             value: None,
-            command: format!("{} {}", ddcutil_path, args.join(" ")),
+            command: command_str,
         })
     }
 

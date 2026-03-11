@@ -5,7 +5,8 @@ use crate::ddc::DDCManager;
 use crate::ui::widgets::brightness_slider::BrightnessSlider;
 use crate::ui::widgets::vcp_controls::VCPControlsContainer;
 use gtk4::prelude::*;
-use gtk4::{ApplicationWindow, Box, Button, ComboBoxText, Label, Orientation, Popover};
+use gtk4::{Box, Button, ComboBoxText, Label, Orientation, Popover};
+use gtk4::glib;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
@@ -269,10 +270,9 @@ impl BrightnessPopup {
     pub async fn refresh_monitors(&self) {
         let monitors = self.ddc_manager.get_monitors().await;
 
-        // Clear existing items (keep "All Monitors")
-        while self.monitor_selector.n_items() > 1 {
-            self.monitor_selector.remove(1);
-        }
+        // Clear all items and re-add "All Monitors"
+        self.monitor_selector.remove_all();
+        self.monitor_selector.append(Some("all"), "All Monitors");
 
         // Add monitors
         for monitor in &monitors {

@@ -6,6 +6,7 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 
 /// Brightness slider widget.
+#[derive(Clone)]
 pub struct BrightnessSlider {
     /// Container widget
     container: Box,

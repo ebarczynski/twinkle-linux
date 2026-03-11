@@ -179,10 +179,10 @@ impl DDCManager {
             if let Some(&timestamp) = timestamps.get(&vcp_code) {
                 let elapsed = (chrono::Utc::now() - timestamp).num_seconds() as f64;
                 if elapsed < self.cache_ttl {
-                    drop(cache_timestamps);
                     let monitors = self.monitors.read().await;
                     if let Some(monitor) = monitors.get(monitor_id) {
                         if let Some(cached) = monitor.get_cached_value(vcp_code) {
+                            drop(cache_timestamps);
                             return Ok(cached);
                         }
                     }

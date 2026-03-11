@@ -3,7 +3,7 @@
 use crate::core::config::ConfigManager;
 use crate::ddc::DDCManager;
 use gtk4::prelude::*;
-use gtk4::{Application, ApplicationWindow, Image, MenuItem, PopoverMenu, Widget};
+use gtk4::{Application, gio, glib, PopoverMenu};
 use std::sync::Arc;
 
 /// System tray icon.
@@ -33,11 +33,11 @@ impl TrayIcon {
             .tooltip_text("Twinkle Linux - Monitor Brightness Control")
             .build();
 
-        // Create popover menu
-        let popover = PopoverMenu::new();
-
         // Build the menu
-        Self::build_menu(&popover);
+        let menu = Self::build_menu();
+
+        // Create popover menu
+        let popover = PopoverMenu::from_model(Some(&menu));
 
         status_button.set_popover(Some(&popover));
 
@@ -51,7 +51,7 @@ impl TrayIcon {
     }
 
     /// Build the tray icon menu.
-    fn build_menu(popover: &PopoverMenu) {
+    fn build_menu() -> gio::Menu {
         let menu = gio::Menu::new();
 
         // Brightness section
@@ -70,7 +70,7 @@ impl TrayIcon {
         quit_section.append(Some("Quit"), Some("app.quit"));
         menu.append_section(None, &quit_section);
 
-        popover.set_menu_model(Some(&menu));
+        menu
     }
 
     /// Get the status button widget.
@@ -131,7 +131,7 @@ pub fn setup_tray_actions(app: &Application) {
 
     // Quit action
     let quit = gio::SimpleAction::new("quit", None);
-    quit.connect_activate(|_, app| {
+    quit.connect_activate(|_, app: &gio::Application| {
         app.quit();
     });
     app.add_action(&quit);

@@ -1851,6 +1851,8 @@ dependencies = [
  "anyhow",
  "chrono",
  "directories",
+ "gio 0.20.12",
+ "glib 0.20.12",
  "gtk4",
  "gtk4-layer-shell",
  "libappindicator",

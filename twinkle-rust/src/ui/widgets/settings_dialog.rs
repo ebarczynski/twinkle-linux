@@ -2,7 +2,7 @@
 
 use crate::core::config::{AppConfig, ConfigManager};
 use gtk4::prelude::*;
-use gtk4::{Adjustment, Box, CheckButton, ComboBoxText, Dialog, Label, Orientation, SpinButton, Switch};
+use gtk4::{Adjustment, Box, ComboBoxText, Dialog, Label, Orientation, SpinButton, Switch};
 use std::sync::Arc;
 
 /// Settings dialog.
@@ -18,7 +18,7 @@ pub struct SettingsDialog {
 impl SettingsDialog {
     /// Create a new settings dialog.
     pub async fn new(
-        parent: &impl IsA<gtk4::Window>,
+        _parent: &impl IsA<gtk4::Window>,
         config_manager: Arc<tokio::sync::Mutex<ConfigManager>>,
     ) -> Self {
         let dialog = Dialog::builder()
@@ -38,7 +38,7 @@ impl SettingsDialog {
         let original_config = config.config().clone();
         drop(config);
 
-        let mut settings = Self {
+        let settings = Self {
             dialog,
             config_manager,
             original_config,
@@ -125,9 +125,9 @@ impl SettingsDialog {
             .build();
 
         let theme_combo = ComboBoxText::new();
-        theme_combo.append("system", "Auto (follow system)");
-        theme_combo.append("light", "Light");
-        theme_combo.append("dark", "Dark");
+        theme_combo.append(Some("system"), "Auto (follow system)");
+        theme_combo.append(Some("light"), "Light");
+        theme_combo.append(Some("dark"), "Dark");
         theme_combo.set_active_id(Some(&self.original_config.general.theme));
 
         let theme_box = Box::builder()
@@ -143,8 +143,8 @@ impl SettingsDialog {
             .build();
 
         let language_combo = ComboBoxText::new();
-        language_combo.append("en_US", "English (US)");
-        language_combo.append("pl_PL", "Polish");
+        language_combo.append(Some("en_US"), "English (US)");
+        language_combo.append(Some("pl_PL"), "Polish");
         language_combo.set_active_id(Some(&self.original_config.general.language));
         language_combo.set_sensitive(false); // Placeholder for future i18n
 
