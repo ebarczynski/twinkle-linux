@@ -165,6 +165,10 @@ impl MonitorDetector {
         let mut executor = self.executor.lock().await;
         tracing::info!("MonitorDetector::detect_monitors() - Calling executor.detect_monitors()");
         let result = executor.detect_monitors().await?;
+        
+        // Release the lock before parsing to avoid deadlock
+        drop(executor);
+        tracing::info!("MonitorDetector::detect_monitors() - Released executor lock");
 
         tracing::info!("MonitorDetector::detect_monitors() - Command result: success={}, stdout_len={}",
             result.success, result.stdout.len());
@@ -183,6 +187,7 @@ impl MonitorDetector {
 
     /// Parse the output from `ddcutil detect --brief`.
     async fn _parse_detect_output(&self, output: &str) -> DDCResult<Vec<Monitor>> {
+        tracing::info!("_parse_detect_output() - Starting to parse {} lines", output.lines().count());
         let mut monitors = Vec::new();
         let bus_re = Regex::new(r"I2C bus:\s*/dev/i2c-(\d+)").unwrap();
         let model_re = Regex::new(r"Model:\s*(.+?)\s*\n").unwrap();
@@ -192,11 +197,13 @@ impl MonitorDetector {
         let lines: Vec<&str> = output.lines().collect();
         let mut i = 0;
 
+        tracing::info!("_parse_detect_output() - Starting line-by-line parsing");
         while i < lines.len() {
             let line = lines[i];
 
             if let Some(caps) = bus_re.captures(line) {
                 let bus: i32 = caps.get(1).unwrap().as_str().parse().unwrap_or(-1);
+                tracing::info!("_parse_detect_output() - Found monitor on bus {}", bus);
                 let mut monitor = Monitor::new(bus);
 
                 // Look for monitor info in following lines
@@ -212,45 +219,66 @@ impl MonitorDetector {
                     }
                 }
 
+                tracing::info!("_parse_detect_output() - Getting capabilities for bus {}", bus);
                 // Get capabilities for this monitor
                 if let Ok(capabilities) = self._get_monitor_capabilities(bus).await {
                     monitor.capabilities = capabilities;
+                    tracing::info!("_parse_detect_output() - Successfully retrieved capabilities for bus {}", bus);
+                } else {
+                    tracing::warn!("_parse_detect_output() - Failed to get capabilities for bus {}", bus);
                 }
 
                 monitors.push(monitor);
+                tracing::info!("_parse_detect_output() - Added monitor {} to list (total: {})",
+                    monitor.display_name(), monitors.len());
             }
 
             i += 1;
         }
 
+        tracing::info!("_parse_detect_output() - Parsing complete, found {} monitors", monitors.len());
         Ok(monitors)
     }
 
     /// Get capabilities for a specific monitor.
     async fn _get_monitor_capabilities(&self, bus: i32) -> DDCResult<MonitorCapabilities> {
+        tracing::info!("_get_monitor_capabilities() - Acquiring executor lock for bus {}", bus);
         let mut executor = self.executor.lock().await;
+        tracing::info!("_get_monitor_capabilities() - Calling get_capabilities for bus {}", bus);
         let result = executor.get_capabilities(bus).await?;
+        tracing::info!("_get_monitor_capabilities() - get_capabilities completed for bus {}, success={}",
+            bus, result.success);
+
+        // Release the lock before parsing
+        drop(executor);
+        tracing::info!("_get_monitor_capabilities() - Released executor lock for bus {}", bus);
 
         if !result.success {
+            tracing::warn!("_get_monitor_capabilities() - get_capabilities failed for bus {}, using defaults", bus);
             return Ok(MonitorCapabilities::default());
         }
 
+        tracing::info!("_get_monitor_capabilities() - Parsing capabilities output for bus {}", bus);
         self._parse_capabilities_output(&result.stdout)
     }
 
     /// Parse the capabilities output.
     fn _parse_capabilities_output(&self, output: &str) -> DDCResult<MonitorCapabilities> {
+        tracing::info!("_parse_capabilities_output() - Parsing capabilities from {} bytes", output.len());
         let mut capabilities = MonitorCapabilities::default();
 
         // Parse supported VCP codes
         let vcp_re = Regex::new(r"VCP code ([0-9A-Fa-f]{2})").unwrap();
+        let mut vcp_count = 0;
         for caps in vcp_re.captures_iter(output) {
             if let Some(code_str) = caps.get(1) {
                 if let Ok(code) = u8::from_str_radix(code_str.as_str(), 16) {
                     capabilities.supported_vcp_codes.insert(code);
+                    vcp_count += 1;
                 }
             }
         }
+        tracing::info!("_parse_capabilities_output() - Found {} VCP codes", vcp_count);
 
         // Check for specific capabilities based on VCP codes
         capabilities.supports_input_source = capabilities.supports_vcp(0x60);
@@ -265,6 +293,9 @@ impl MonitorDetector {
             capabilities.max_contrast = info.max_value;
         }
 
+        tracing::info!("_parse_capabilities_output() - Capabilities parsed: input_source={}, power_control={}, audio={}, max_brightness={}, max_contrast={}",
+            capabilities.supports_input_source, capabilities.supports_power_control,
+            capabilities.supports_audio, capabilities.max_brightness, capabilities.max_contrast);
         Ok(capabilities)
     }
 }
