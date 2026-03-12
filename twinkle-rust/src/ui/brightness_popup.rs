@@ -136,7 +136,9 @@ impl BrightnessPopup {
         let auto_hide_timer = self.auto_hide_timer.clone();
         let auto_hide_delay_ms = self.auto_hide_delay_ms;
 
-        self.brightness_slider.set_on_change(move |value| {
+        // Clone the slider to get mutable access for set_on_change
+        let mut brightness_slider = self.brightness_slider.clone();
+        brightness_slider.set_on_change(move |value| {
             let ddc_manager = ddc_manager.clone();
             let current_monitor_id = current_monitor_id.clone();
             let auto_hide_timer = auto_hide_timer.clone();
@@ -223,8 +225,9 @@ impl BrightnessPopup {
         // Connect popover closed signal to clear timer
         let auto_hide_timer = self.auto_hide_timer.clone();
         self.popover.connect_closed(move |_| {
+            let timer_clone = auto_hide_timer.clone();
             glib::spawn_future_local(async move {
-                let mut timer = auto_hide_timer.lock().await;
+                let mut timer = timer_clone.lock().await;
                 if let Some(source_id) = timer.take() {
                     source_id.remove();
                 }
@@ -256,7 +259,7 @@ impl BrightnessPopup {
                 std::time::Duration::from_millis(delay_ms as u64),
                 move || {
                     // TODO: Hide the popup
-                    let mut timer = timer_clone.lock();
+                    let mut timer = timer_clone.blocking_lock();
                     *timer = None;
                 },
             );

@@ -52,9 +52,11 @@ fn build_ui(app: &Application, state: AppState) {
     window.set_child(Some(&container));
 
     // Setup tray icon
+    // Clone the Application to move into the async closure
+    let app_clone = app.clone();
     glib::spawn_future_local(async move {
         let tray_icon = TrayIcon::new(
-            app.clone(),
+            app_clone,
             state.ddc_manager.clone(),
             state.config_manager.clone(),
         )
