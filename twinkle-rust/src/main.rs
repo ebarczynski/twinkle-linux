@@ -23,6 +23,8 @@ struct AppState {
 
 /// Build the application UI.
 fn build_ui(app: &Application, state: AppState) {
+    tracing::info!("build_ui: Starting UI construction");
+
     // Create main window
     let window = ApplicationWindow::builder()
         .application(app)
@@ -30,6 +32,7 @@ fn build_ui(app: &Application, state: AppState) {
         .default_width(400)
         .default_height(300)
         .build();
+    tracing::info!("build_ui: Main window created");
 
     // Create main container
     let container = Box::builder()
@@ -47,9 +50,81 @@ fn build_ui(app: &Application, state: AppState) {
         .halign(gtk4::Align::Center)
         .valign(gtk4::Align::Center)
         .build();
+    tracing::info!("build_ui: Status label created with 'Initializing...'");
 
     container.append(&status_label);
     window.set_child(Some(&container));
+
+    // Create a channel for communication between async task and UI
+    let (sender, receiver) = glib::MainContext::channel(glib::Priority::DEFAULT);
+    tracing::info!("build_ui: Created glib channel for async communication");
+
+    // Setup receiver to handle UI updates on the main thread
+    let container_clone = container.clone();
+    let window_clone = window.clone();
+    let status_label_clone = status_label.clone();
+    let app_clone_for_ui = app.clone();
+    let ddc_manager_for_ui = state.ddc_manager.clone();
+    let config_manager_for_ui = state.config_manager.clone();
+
+    receiver.attach(None, move |msg| {
+        tracing::info!("build_ui: Received message on channel: {:?}", msg);
+        match msg {
+            InitializationMessage::Initialized => {
+                tracing::info!("build_ui: Processing Initialized message");
+                
+                // Remove the initializing label
+                status_label_clone.set_label("Ready!");
+                tracing::info!("build_ui: Status label updated to 'Ready!'");
+                
+                // Clear the container and add the tray icon widget
+                while let Some(child) = container_clone.first_child() {
+                    container_clone.remove(&child);
+                }
+                tracing::info!("build_ui: Container cleared");
+
+                // Create and add the tray icon widget
+                let tray_icon_widget = gtk4::MenuButton::builder()
+                    .icon_name("display-brightness-symbolic")
+                    .tooltip_text("Twinkle Linux - Monitor Brightness Control")
+                    .build();
+                tracing::info!("build_ui: Tray icon button created");
+
+                // Create a label to show the app is ready
+                let ready_label = Label::builder()
+                    .label("Twinkle Linux is running\nCheck the system tray for controls")
+                    .halign(gtk4::Align::Center)
+                    .valign(gtk4::Align::Center)
+                    .margin_top(20)
+                    .margin_bottom(20)
+                    .build();
+                tracing::info!("build_ui: Ready label created");
+
+                container_clone.append(&tray_icon_widget);
+                container_clone.append(&ready_label);
+                tracing::info!("build_ui: UI widgets added to container");
+
+                // Initialize the actual tray icon functionality
+                let app_for_tray = app_clone_for_ui.clone();
+                let ddc_for_tray = ddc_manager_for_ui.clone();
+                let config_for_tray = config_manager_for_ui.clone();
+                glib::spawn_future_local(async move {
+                    tracing::info!("build_ui: Creating TrayIcon after UI update");
+                    let _tray_icon = TrayIcon::new(
+                        app_for_tray,
+                        ddc_for_tray,
+                        config_for_tray,
+                    ).await;
+                    tracing::info!("build_ui: TrayIcon created after UI update");
+                });
+            }
+            InitializationMessage::Error(msg) => {
+                tracing::error!("build_ui: Processing Error message: {}", msg);
+                status_label_clone.set_label(&format!("Error: {}", msg));
+            }
+        }
+        glib::Continue(true)
+    });
 
     // Setup tray icon
     // Clone the Application to move into the async closure
@@ -73,18 +148,33 @@ fn build_ui(app: &Application, state: AppState) {
             Ok(true) => {
                 tracing::info!("DDC manager initialized successfully");
                 tray_icon.update_state().await;
+                
+                // Send initialization complete message to UI
+                tracing::info!("Sending Initialized message to UI channel");
+                if let Err(e) = sender.send(InitializationMessage::Initialized) {
+                    tracing::error!("Failed to send initialization message: {}", e);
+                }
             }
             Ok(false) => {
                 tracing::warn!("DDC manager initialization failed");
+                let _ = sender.send(InitializationMessage::Error("DDC initialization failed".to_string()));
             }
             Err(e) => {
                 tracing::error!("DDC manager initialization error: {}", e);
+                let _ = sender.send(InitializationMessage::Error(format!("DDC error: {}", e)));
             }
         }
         tracing::info!("Async initialization task completed");
     });
 
     window.show();
+    tracing::info!("build_ui: Window shown");
+}
+
+/// Message type for async initialization communication
+enum InitializationMessage {
+    Initialized,
+    Error(String),
 }
 
 /// Main entry point.
