@@ -228,9 +228,10 @@ impl MonitorDetector {
                     tracing::warn!("_parse_detect_output() - Failed to get capabilities for bus {}", bus);
                 }
 
+                let display_name = monitor.display_name();
                 monitors.push(monitor);
                 tracing::info!("_parse_detect_output() - Added monitor {} to list (total: {})",
-                    monitor.display_name(), monitors.len());
+                    display_name, monitors.len());
             }
 
             i += 1;
