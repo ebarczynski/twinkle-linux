@@ -40,8 +40,13 @@ pub struct DDCManager {
 impl DDCManager {
     /// Create a new DDCManager with default settings.
     pub async fn new() -> DDCResult<Self> {
+        tracing::info!("DDCManager::new() called");
+        
         let executor = Arc::new(tokio::sync::Mutex::new(CommandExecutor::new()));
+        tracing::info!("CommandExecutor created");
+        
         let detector = MonitorDetector::new(executor.clone());
+        tracing::info!("MonitorDetector created");
 
         Ok(Self {
             executor,
@@ -75,19 +80,28 @@ impl DDCManager {
         tracing::info!("Initializing DDCManager...");
 
         // Check if ddcutil is available
+        tracing::info!("Checking if ddcutil is available...");
         {
             let mut executor = self.executor.lock().await;
-            if !executor.check_ddcutil_available() {
+            tracing::info!("Acquired executor lock, calling check_ddcutil_available()...");
+            let available = executor.check_ddcutil_available().await;
+            drop(executor); // Release lock before potential error handling
+            if !available {
                 tracing::error!("ddcutil is not available on this system");
                 return Err(DDCError::DDCNotAvailable);
             }
+            tracing::info!("ddcutil is available");
         }
+        tracing::info!("Released executor lock");
 
         // Detect monitors
+        tracing::info!("Detecting monitors...");
         match self.detector.detect_monitors().await {
             Ok(detected_monitors) => {
+                tracing::info!("Found {} monitor(s)", detected_monitors.len());
                 let mut monitors = self.monitors.write().await;
                 for monitor in detected_monitors {
+                    tracing::info!("Adding monitor: {}", monitor.display_name());
                     monitors.insert(monitor.unique_id(), monitor);
                 }
 
@@ -107,7 +121,7 @@ impl DDCManager {
     /// Check if DDC/CI is available on the system.
     pub async fn is_available(&self) -> bool {
         let mut executor = self.executor.lock().await;
-        executor.check_ddcutil_available()
+        executor.check_ddcutil_available().await
     }
 
     /// Check if the user has permission to access I2C devices.

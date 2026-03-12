@@ -92,23 +92,42 @@ impl CommandExecutor {
     }
 
     /// Check if ddcutil is available on the system.
-    pub fn check_ddcutil_available(&mut self) -> bool {
-        let result = Command::new("ddcutil")
-            .arg("--version")
-            .output();
+    /// This is an async function that uses timeout to prevent blocking.
+    pub async fn check_ddcutil_available(&mut self) -> bool {
+        tracing::info!("check_ddcutil_available() - Starting ddcutil --version command");
+        
+        let timeout_duration = Duration::from_secs_f64(self.timeout_secs);
+        
+        let result = tokio_timeout(timeout_duration, async {
+            tokio::task::spawn_blocking(|| {
+                Command::new("ddcutil")
+                    .arg("--version")
+                    .output()
+            })
+            .await
+            .map_err(|e| DDCError::Other(format!("Task join error: {}", e)))?
+            .map_err(|e| DDCError::Io(e))
+        })
+        .await;
 
+        tracing::info!("check_ddcutil_available() - Command completed");
         match result {
-            Ok(output) => {
+            Ok(Ok(output)) => {
                 if output.status.success() {
                     self.ddcutil_path = Some("ddcutil".to_string());
                     tracing::info!("ddcutil found: {}", String::from_utf8_lossy(&output.stdout).trim());
                     true
                 } else {
+                    tracing::warn!("ddcutil --version failed with exit code {:?}", output.status.code());
                     false
                 }
             }
+            Ok(Err(e)) => {
+                tracing::warn!("ddcutil command failed: {}", e);
+                false
+            }
             Err(_) => {
-                tracing::warn!("ddcutil not found on system");
+                tracing::warn!("ddcutil --version timed out after {}s", self.timeout_secs);
                 false
             }
         }
@@ -117,8 +136,8 @@ impl CommandExecutor {
     /// Get the path to the ddcutil executable.
     ///
     /// Returns an error if ddcutil is not available.
-    fn get_ddcutil_path(&mut self) -> DDCResult<String> {
-        if self.ddcutil_path.is_none() && !self.check_ddcutil_available() {
+    async fn get_ddcutil_path(&mut self) -> DDCResult<String> {
+        if self.ddcutil_path.is_none() && !self.check_ddcutil_available().await {
             return Err(DDCError::DDCNotAvailable);
         }
         Ok(self.ddcutil_path.clone().unwrap_or_else(|| "ddcutil".to_string()))
@@ -126,9 +145,10 @@ impl CommandExecutor {
 
     /// Execute a ddcutil command with timeout and retry logic.
     pub async fn execute(&mut self, args: &[&str]) -> DDCResult<CommandResult> {
-        let ddcutil_path = self.get_ddcutil_path()?;
+        let ddcutil_path = self.get_ddcutil_path().await?;
         let command_str = format!("{} {}", ddcutil_path, args.join(" "));
 
+        tracing::info!("execute() - Starting command: {} (timeout: {}s)", command_str, self.timeout_secs);
         let mut last_error = None;
         let mut delay = self.retry_delay_secs;
 
@@ -139,8 +159,10 @@ impl CommandExecutor {
                 delay *= self.retry_backoff;
             }
 
+            tracing::info!("execute() - Attempt {} for command: {}", attempt + 1, command_str);
             match self._execute_single(&ddcutil_path, args).await {
                 Ok(result) => {
+                    tracing::info!("execute() - Command completed with success={}", result.success);
                     if result.success {
                         return Ok(result);
                     }
@@ -160,6 +182,7 @@ impl CommandExecutor {
                     }));
                 }
                 Err(e) => {
+                    tracing::warn!("execute() - Command error: {}", e);
                     if is_timeout_error(&e) {
                         last_error = Some(e);
                         continue;
@@ -254,8 +277,11 @@ impl CommandExecutor {
 
     /// Detect monitors on the system.
     pub async fn detect_monitors(&mut self) -> DDCResult<CommandResult> {
+        tracing::info!("detect_monitors() - Starting ddcutil detect --brief command");
         let args = &["detect", "--brief"];
-        self.execute(args).await
+        let result = self.execute(args).await;
+        tracing::info!("detect_monitors() - Command completed");
+        result
     }
 
     /// Get EDID data for a monitor.

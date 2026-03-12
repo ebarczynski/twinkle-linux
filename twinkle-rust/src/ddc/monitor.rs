@@ -161,9 +161,14 @@ impl MonitorDetector {
 
     /// Detect all available monitors.
     pub async fn detect_monitors(&self) -> DDCResult<Vec<Monitor>> {
+        tracing::info!("MonitorDetector::detect_monitors() - Acquiring executor lock");
         let mut executor = self.executor.lock().await;
+        tracing::info!("MonitorDetector::detect_monitors() - Calling executor.detect_monitors()");
         let result = executor.detect_monitors().await?;
 
+        tracing::info!("MonitorDetector::detect_monitors() - Command result: success={}, stdout_len={}",
+            result.success, result.stdout.len());
+        
         if !result.success {
             return Err(DDCError::CommandExecution(crate::ddc::error::CommandExecutionError {
                 command: result.command,
@@ -172,6 +177,7 @@ impl MonitorDetector {
             }));
         }
 
+        tracing::info!("MonitorDetector::detect_monitors() - Parsing output");
         self._parse_detect_output(&result.stdout).await
     }
 

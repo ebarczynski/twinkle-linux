@@ -54,15 +54,21 @@ fn build_ui(app: &Application, state: AppState) {
     // Setup tray icon
     // Clone the Application to move into the async closure
     let app_clone = app.clone();
+    tracing::info!("Spawning async initialization task...");
     glib::spawn_future_local(async move {
+        tracing::info!("Async initialization task started");
+        
+        tracing::info!("Creating TrayIcon...");
         let tray_icon = TrayIcon::new(
             app_clone,
             state.ddc_manager.clone(),
             state.config_manager.clone(),
         )
         .await;
+        tracing::info!("TrayIcon created successfully");
 
         // Initialize DDC manager
+        tracing::info!("Initializing DDC manager...");
         match state.ddc_manager.initialize().await {
             Ok(true) => {
                 tracing::info!("DDC manager initialized successfully");
@@ -75,6 +81,7 @@ fn build_ui(app: &Application, state: AppState) {
                 tracing::error!("DDC manager initialization error: {}", e);
             }
         }
+        tracing::info!("Async initialization task completed");
     });
 
     window.show();
@@ -103,25 +110,33 @@ async fn main() {
 
     // Connect activate signal
     app.connect_activate(|app| {
+        tracing::info!("App activate callback started");
+        
         // Create config manager
+        tracing::info!("Creating ConfigManager...");
         let config_manager = Arc::new(Mutex::new(
             ConfigManager::new().expect("Failed to create config manager"),
         ));
+        tracing::info!("ConfigManager created successfully");
 
         // Create DDC manager
+        tracing::info!("Creating DDCManager...");
         let ddc_manager = Arc::new(
             tokio::task::block_in_place(|| {
                 tokio::runtime::Handle::current().block_on(DDCManager::new())
             })
             .expect("Failed to create DDC manager"),
         );
+        tracing::info!("DDCManager created successfully");
 
         let state = AppState {
             ddc_manager,
             config_manager,
         };
 
+        tracing::info!("Calling build_ui...");
         build_ui(app, state);
+        tracing::info!("build_ui completed");
     });
 
     // Run the application
