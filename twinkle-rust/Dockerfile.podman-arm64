@@ -1,0 +1,35 @@
+# Docker image for building Twinkle Linux with GTK4 support (ARM64)
+# Based on Ubuntu 22.04 (jammy) which has both GTK3 and GTK4 packages
+FROM ubuntu:22.04
+
+# Prevent interactive prompts during package installation
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Install Rust, GTK4 and related dependencies for Linux
+RUN apt-get update && apt-get install -y \
+    curl \
+    build-essential \
+    pkg-config \
+    libgtk-4-dev \
+    libgtk-3-dev \
+    libglib2.0-dev \
+    libpango1.0-dev \
+    libcairo2-dev \
+    libatk1.0-dev \
+    libgdk-pixbuf-2.0-dev \
+    libgraphene-1.0-dev \
+    libadwaita-1-dev \
+    shared-mime-info \
+    libxkbcommon-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Rust using rustup
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+ENV PATH="/root/.cargo/bin:${PATH}"
+
+# Set environment variables for pkg-config
+ENV PKG_CONFIG_PATH=/usr/lib/aarch64-linux-gnu/pkgconfig:/usr/share/pkgconfig
+ENV PKG_CONFIG_LIBDIR=/usr/lib/aarch64-linux-gnu/pkgconfig:/usr/share/pkgconfig
+
+# Set working directory
+WORKDIR /workspace
