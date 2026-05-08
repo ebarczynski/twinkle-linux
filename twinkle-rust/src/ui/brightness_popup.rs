@@ -4,7 +4,6 @@ use crate::core::config::ConfigManager;
 use crate::ddc::DDCManager;
 use crate::ui::widgets::brightness_slider::BrightnessSlider;
 use crate::ui::widgets::vcp_controls::VCPControlsContainer;
-use crate::utils::spawn_local;
 use gtk4::glib;
 use gtk4::prelude::*;
 use gtk4::{Box, Button, ComboBoxText, Label, Orientation, Popover};
@@ -144,7 +143,7 @@ impl BrightnessPopup {
             let current_monitor_id = current_monitor_id.clone();
             let auto_hide_timer = auto_hide_timer.clone();
 
-            spawn_local(async move {
+            glib::spawn_future_local(async move {
                 let monitor_id = {
                     let id = current_monitor_id.lock().await;
                     id.clone()
@@ -179,7 +178,7 @@ impl BrightnessPopup {
                 let auto_hide_timer = auto_hide_timer.clone();
                 let value = value;
 
-                spawn_local(async move {
+                glib::spawn_future_local(async move {
                     let monitor_id = {
                         let id = current_monitor_id.lock().await;
                         id.clone()
@@ -207,7 +206,7 @@ impl BrightnessPopup {
             let brightness_slider = brightness_slider.clone();
             let selected_id = combo.active_id();
 
-            spawn_local(async move {
+            glib::spawn_future_local(async move {
                 if let Some(id) = selected_id {
                     if id == "all" {
                         *current_monitor_id.lock().await = None;
@@ -227,7 +226,7 @@ impl BrightnessPopup {
         let auto_hide_timer = self.auto_hide_timer.clone();
         self.popover.connect_closed(move |_| {
             let timer_clone = auto_hide_timer.clone();
-            spawn_local(async move {
+            glib::spawn_future_local(async move {
                 let mut timer = timer_clone.lock().await;
                 if let Some(source_id) = timer.take() {
                     source_id.remove();
@@ -242,7 +241,7 @@ impl BrightnessPopup {
         delay_ms: u32,
     ) {
         let timer_clone = timer.clone();
-        spawn_local(async move {
+        glib::spawn_future_local(async move {
             let mut timer_guard = timer.lock().await;
 
             // Remove existing timer
@@ -304,7 +303,7 @@ impl BrightnessPopup {
         let auto_hide_timer = self.auto_hide_timer.clone();
         let auto_hide_delay_ms = self.auto_hide_delay_ms;
 
-        spawn_local(async move {
+        glib::spawn_future_local(async move {
             Self::reset_auto_hide_timer(auto_hide_timer, auto_hide_delay_ms);
         });
     }

@@ -10,7 +10,6 @@ use crate::ddc::DDCManager;
 use crate::ui::brightness_popup::BrightnessPopup;
 use crate::ui::tray_icon::TrayIcon;
 use crate::ui::widgets::settings_dialog::SettingsDialog;
-use crate::utils::{set_tokio_handle, spawn_local};
 use gtk4::prelude::*;
 use gtk4::{
     AboutDialog, Application, ApplicationWindow, Box, Label, Orientation,
@@ -74,8 +73,10 @@ fn build_ui(app: &Application, state: AppState) {
     let brightness_popup_clone = brightness_popup.clone();
     let window_clone = window.clone();
 
-    // Spawn async initialization
-    spawn_local(async move {
+    // Spawn async initialization on the GLib main context.
+    // The tokio runtime context is already entered on the main thread
+    // (see main()), so all .await calls will find the reactor.
+    gtk4::glib::spawn_future_local(async move {
         tracing::info!("Async initialization task started");
 
         // Create and set up the tray icon
@@ -182,7 +183,7 @@ fn setup_tray_actions(
         let config_mgr = config_for_settings.clone();
         let app_ref = window_for_settings.clone();
 
-        spawn_local(async move {
+        gtk4::glib::spawn_future_local(async move {
             // Get or create a transient window for the dialog
             let windows = app_ref.windows();
             let parent = windows.first().cloned();
@@ -244,10 +245,12 @@ fn main() {
 
     tracing::info!("Starting Twinkle Linux v{}", utils::version());
 
-    // Store the tokio handle globally so all glib::spawn_future_local calls
-    // can enter the tokio runtime context via utils::spawn_local()
-    let rt_handle = runtime.handle().clone();
-    set_tokio_handle(rt_handle);
+    // Enter the tokio runtime context on the main thread.
+    // This guard lives for the entire application lifetime, so ALL async
+    // code running on the GLib main context (via glib::spawn_future_local)
+    // will find a valid tokio reactor. No per-future EnterGuard needed.
+    let _rt_guard = runtime.enter();
+
     // Keep the runtime alive for the duration of the application
     let _runtime = runtime;
 
@@ -260,9 +263,13 @@ fn main() {
     app.connect_activate(move |app| {
         tracing::info!("App activate callback started");
 
+        // Since we entered the tokio context on the main thread,
+        // we can use Handle::current() and block_on directly.
+        let rt = tokio::runtime::Handle::current();
+
         // Create config manager and load existing config
         tracing::info!("Creating ConfigManager...");
-        let config_manager = utils::tokio_handle().block_on(async {
+        let config_manager = rt.block_on(async {
             let mut mgr = ConfigManager::new().expect("Failed to create config manager");
             if let Err(e) = mgr.load() {
                 tracing::warn!("Failed to load config, using defaults: {}", e);
@@ -274,7 +281,7 @@ fn main() {
         // Create DDC manager
         tracing::info!("Creating DDCManager...");
         let ddc_manager = Arc::new(
-            utils::tokio_handle().block_on(DDCManager::new())
+            rt.block_on(DDCManager::new())
                 .expect("Failed to create DDC manager"),
         );
         tracing::info!("DDCManager created successfully");

@@ -1,39 +1,5 @@
 //! Utility functions for Twinkle Linux.
 
-use std::sync::OnceLock;
-use tokio::runtime::Handle;
-
-/// Global tokio runtime handle, set once at startup.
-/// Required because GTK signal handlers call glib::spawn_future_local
-/// which runs on the GLib main context — outside the tokio runtime.
-/// Every async closure spawned via glib must enter this handle first.
-static TOKIO_HANDLE: OnceLock<Handle> = OnceLock::new();
-
-/// Set the global tokio runtime handle. Called once from main().
-pub fn set_tokio_handle(handle: Handle) {
-    TOKIO_HANDLE.set(handle).expect("tokio handle already set");
-}
-
-/// Get the global tokio runtime handle.
-pub fn tokio_handle() -> &'static Handle {
-    TOKIO_HANDLE.get().expect("tokio handle not set — call set_tokio_handle() first")
-}
-
-/// Spawn an async future on the GLib main context with the tokio runtime entered.
-/// This is the correct way to bridge GTK signal handlers to tokio async code.
-///
-/// Usage: `spawn_local(async { ... })` instead of `glib::spawn_future_local(async { ... })`
-pub fn spawn_local<F>(future: F)
-where
-    F: std::future::Future<Output = ()> + 'static,
-{
-    let handle = tokio_handle().clone();
-    gtk4::glib::spawn_future_local(async move {
-        let _guard = handle.enter();
-        future.await;
-    });
-}
-
 /// Get the application version.
 pub fn version() -> &'static str {
     env!("CARGO_PKG_VERSION")
