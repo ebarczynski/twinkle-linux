@@ -340,30 +340,93 @@ impl DDCManager {
         Ok(pct)
     }
 
-    /// Write brightness to kernel backlight sysfs.
+    /// Write brightness to internal display via systemd-logind D-Bus.
+    ///
+    /// Uses org.freedesktop.login1.Session.SetBrightness which works
+    /// without special group membership — it checks the active session
+    /// instead of file permissions. Falls back to direct sysfs write.
     async fn _set_backlight_brightness(&self, monitor: &Monitor, value: u16) -> DDCResult<()> {
         let path = monitor.backlight_path.as_ref()
             .ok_or_else(|| DDCError::Other("No backlight path".to_string()))?;
 
         let value = value.clamp(0, 100);
 
+        // Extract backlight name from sysfs path (e.g. "intel_backlight" from
+        // "/sys/class/backlight/intel_backlight")
+        let backlight_name = path.rsplit('/').next()
+            .ok_or_else(|| DDCError::Other("Invalid backlight path".to_string()))?
+            .to_string();
+
+        // Read max_brightness (world-readable) and compute raw value
+        let (raw_value, max) = tokio::task::spawn_blocking({
+            let path = path.clone();
+            move || -> (u32, u32) {
+                let max_str = std::fs::read_to_string(format!("{}/max_brightness", &path))
+                    .unwrap_or_else(|_| "100".to_string());
+                let max: u32 = max_str.trim().parse().unwrap_or(100);
+                let raw = (value as u32 * max / 100) as u32;
+                (raw, max)
+            }
+        }).await.map_err(|e| DDCError::Other(e.to_string()))?;
+
+        // Try systemd-logind D-Bus SetBrightness first.
+        // This works without special permissions for any user with an active session.
+        let gdbus_result = tokio::task::spawn_blocking({
+            let backlight_name = backlight_name.clone();
+            move || -> std::io::Result<()> {
+                let output = std::process::Command::new("gdbus")
+                    .args([
+                        "call",
+                        "--system",
+                        "--dest", "org.freedesktop.login1",
+                        "--object-path", "/org/freedesktop/login1/session/auto",
+                        "--method", "org.freedesktop.login1.Session.SetBrightness",
+                        "backlight",
+                        &backlight_name,
+                        &raw_value.to_string(),
+                    ])
+                    .output()?;
+
+                if !output.status.success() {
+                    let stderr = String::from_utf8_lossy(&output.stderr);
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::Other,
+                        format!("gdbus SetBrightness failed: {}", stderr.trim()),
+                    ));
+                }
+                Ok(())
+            }
+        }).await.map_err(|e| DDCError::Other(e.to_string()))?;
+
+        match gdbus_result {
+            Ok(()) => {
+                tracing::info!(
+                    "Backlight {} set to {}% (raw {}/{}) via systemd-logind",
+                    backlight_name, value, raw_value, max
+                );
+                return Ok(());
+            }
+            Err(e) => {
+                tracing::warn!(
+                    "systemd-logind SetBrightness failed ({}), falling back to direct sysfs write",
+                    e
+                );
+            }
+        }
+
+        // Fallback: direct sysfs write (needs video group or root)
         let result: std::io::Result<()> = tokio::task::spawn_blocking({
             let path = path.clone();
             move || {
-                let max_str = std::fs::read_to_string(format!("{}/max_brightness", path))?;
-                let max: u32 = max_str.trim().parse().map_err(|_| {
-                    std::io::Error::new(std::io::ErrorKind::InvalidData, "bad max_brightness")
-                })?;
-
-                let raw = (value as u32 * max / 100) as u32;
-                std::fs::write(format!("{}/brightness", path), raw.to_string())
+                std::fs::write(format!("{}/brightness", path), raw_value.to_string())
             }
         }).await.map_err(|e| DDCError::Other(e.to_string()))?;
 
         result.map_err(|e| {
             if e.kind() == std::io::ErrorKind::PermissionDenied {
                 DDCError::PermissionDenied(format!(
-                    "Cannot write to {}/brightness. Try: sudo usermod -aG video $USER",
+                    "Cannot write to {}/brightness. \
+                     Install brightnessctl or ensure systemd-logind is running.",
                     path
                 ))
             } else {
@@ -371,7 +434,7 @@ impl DDCManager {
             }
         })?;
 
-        tracing::debug!("Backlight {} set to {}%", path, value);
+        tracing::info!("Backlight {} set to {}% (raw {}/{}) via sysfs", backlight_name, value, raw_value, max);
         Ok(())
     }
 
