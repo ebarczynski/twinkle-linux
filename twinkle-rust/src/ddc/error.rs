@@ -67,15 +67,24 @@ pub struct CommandExecutionError {
     pub exit_code: i32,
     /// Standard error output.
     pub stderr: String,
+    /// Standard output (ddcutil writes errors to stdout too).
+    pub stdout: String,
 }
 
 impl std::fmt::Display for CommandExecutionError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "Command '{}' failed with exit code {}: {}",
-            self.command, self.exit_code, self.stderr
-        )
+            "Command '{}' failed with exit code {}",
+            self.command, self.exit_code
+        )?;
+        if !self.stderr.is_empty() {
+            write!(f, ": {}", self.stderr.trim())?;
+        }
+        if !self.stdout.is_empty() {
+            write!(f, " | stdout: {}", self.stdout.trim())?;
+        }
+        Ok(())
     }
 }
 

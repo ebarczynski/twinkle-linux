@@ -37,6 +37,7 @@ pub struct CommandResult {
 
 impl CommandResult {
     /// Get a formatted error message.
+    /// Includes both stderr and stdout (ddcutil writes errors to stdout).
     pub fn error_message(&self) -> String {
         if self.success {
             return String::new();
@@ -44,6 +45,10 @@ impl CommandResult {
         let mut msg = format!("Command failed with exit code {}", self.return_code);
         if !self.stderr.is_empty() {
             msg.push_str(&format!(": {}", self.stderr.trim()));
+        }
+        // ddcutil writes error messages to stdout, not stderr
+        if !self.stdout.is_empty() {
+            msg.push_str(&format!(" | stdout: {}", self.stdout.trim()));
         }
         msg
     }
@@ -172,6 +177,7 @@ impl CommandExecutor {
                             command: command_str.clone(),
                             exit_code: result.return_code,
                             stderr: result.stderr.clone(),
+                            stdout: result.stdout.clone(),
                         }));
                         continue;
                     }
@@ -179,6 +185,7 @@ impl CommandExecutor {
                         command: command_str,
                         exit_code: result.return_code,
                         stderr: result.stderr,
+                        stdout: result.stdout,
                     }));
                 }
                 Err(e) => {
@@ -197,6 +204,7 @@ impl CommandExecutor {
                 command: command_str,
                 exit_code: -1,
                 stderr: "Max retries exceeded".to_string(),
+                stdout: String::new(),
             })
         }))
     }
@@ -240,12 +248,17 @@ impl CommandExecutor {
 
     /// Check if a command result indicates a recoverable error.
     fn _is_recoverable(&self, result: &CommandResult) -> bool {
+        let combined = format!("{} {}", result.stderr.to_lowercase(), result.stdout.to_lowercase());
         // Check for timeout-related errors
-        if result.stderr.contains("timeout") || result.stderr.contains("timed out") {
+        if combined.contains("timeout") || combined.contains("timed out") {
             return true;
         }
         // Check for transient I2C errors
-        if result.stderr.contains("I2C bus") || result.stderr.contains("DDC/CI") {
+        if combined.contains("i2c bus") || combined.contains("ddc/ci") {
+            return true;
+        }
+        // Check for common ddcutil transient errors written to stdout
+        if combined.contains("partial") || combined.contains("failed to read") || combined.contains("communication failed") {
             return true;
         }
         false
@@ -253,7 +266,7 @@ impl CommandExecutor {
 
     /// Get a VCP value from a monitor.
     pub async fn get_vcp(&mut self, bus: i32, vcp_code: u8) -> DDCResult<CommandResult> {
-        let args = &["getvcp", &format!("--bus={}", bus), &format!("0x{:02X}", vcp_code)];
+        let args = &["--sleep-multiplier", "0.5", "getvcp", &format!("--bus={}", bus), &format!("0x{:02X}", vcp_code)];
         let mut result = self.execute(args).await?;
 
         // Parse the value from output
@@ -267,6 +280,7 @@ impl CommandExecutor {
     /// Set a VCP value on a monitor.
     pub async fn set_vcp(&mut self, bus: i32, vcp_code: u8, value: u16) -> DDCResult<CommandResult> {
         let args = &[
+            "--sleep-multiplier", "0.5",
             "setvcp",
             &format!("--bus={}", bus),
             &format!("0x{:02X}", vcp_code),
@@ -278,7 +292,7 @@ impl CommandExecutor {
     /// Detect monitors on the system.
     pub async fn detect_monitors(&mut self) -> DDCResult<CommandResult> {
         tracing::info!("detect_monitors() - Starting ddcutil detect --brief command");
-        let args = &["detect", "--brief"];
+        let args = &["--sleep-multiplier", "0.5", "detect", "--brief"];
         let result = self.execute(args).await;
         tracing::info!("detect_monitors() - Command completed");
         result
@@ -286,13 +300,13 @@ impl CommandExecutor {
 
     /// Get EDID data for a monitor.
     pub async fn get_edid(&mut self, bus: i32) -> DDCResult<CommandResult> {
-        let args = &["getedid", "--bus", &format!("{}", bus)];
+        let args = &["--sleep-multiplier", "0.5", "getedid", "--bus", &format!("{}", bus)];
         self.execute(args).await
     }
 
     /// Get capabilities for a monitor.
     pub async fn get_capabilities(&mut self, bus: i32) -> DDCResult<CommandResult> {
-        let args = &["capabilities", "--bus", &format!("{}", bus)];
+        let args = &["--sleep-multiplier", "0.5", "capabilities", "--bus", &format!("{}", bus)];
         self.execute(args).await
     }
 
@@ -332,6 +346,22 @@ mod tests {
         assert_eq!(
             result.error_message(),
             "Command failed with exit code 1: Permission denied"
+        );
+    }
+
+    #[test]
+    fn test_command_result_error_message_with_stdout() {
+        let result = CommandResult {
+            success: false,
+            return_code: 1,
+            stdout: "DDC communication failed".to_string(),
+            stderr: String::new(),
+            value: None,
+            command: "ddcutil setvcp".to_string(),
+        };
+        assert_eq!(
+            result.error_message(),
+            "Command failed with exit code 1 | stdout: DDC communication failed"
         );
     }
 

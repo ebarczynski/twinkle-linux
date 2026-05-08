@@ -178,6 +178,7 @@ impl MonitorDetector {
                 command: result.command,
                 exit_code: result.return_code,
                 stderr: result.stderr,
+                stdout: result.stdout,
             }));
         }
 

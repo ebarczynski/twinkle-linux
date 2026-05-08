@@ -3,81 +3,67 @@
 use crate::core::config::ConfigManager;
 use crate::ddc::DDCManager;
 use crate::ui::widgets::brightness_slider::BrightnessSlider;
-use crate::ui::widgets::vcp_controls::VCPControlsContainer;
 use gtk4::glib;
 use gtk4::prelude::*;
-use gtk4::{Box, Button, ComboBoxText, Label, Orientation, Popover};
+use gtk4::{Box, Button, ComboBoxText, Label, Orientation, Window};
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
 /// Brightness popup window.
 pub struct BrightnessPopup {
-    /// The popover widget
-    popover: Popover,
+    /// The window widget
+    window: Window,
     /// Brightness slider
     brightness_slider: BrightnessSlider,
     /// Monitor selector combo box
     monitor_selector: ComboBoxText,
     /// Preset buttons
     preset_buttons: Vec<Button>,
-    /// VCP controls container
-    vcp_controls: VCPControlsContainer,
     /// DDC manager
     ddc_manager: Arc<DDCManager>,
     /// Config manager
     config_manager: Arc<Mutex<ConfigManager>>,
     /// Current monitor ID (None = All Monitors)
     current_monitor_id: Arc<Mutex<Option<String>>>,
-    /// Auto-hide timer
-    auto_hide_timer: Arc<Mutex<Option<glib::SourceId>>>,
-    /// Auto-hide delay in milliseconds
-    auto_hide_delay_ms: u32,
 }
 
 impl BrightnessPopup {
     /// Create a new brightness popup.
     pub async fn new(
-        parent: &impl IsA<gtk4::Widget>,
+        parent: &impl IsA<gtk4::Window>,
         ddc_manager: Arc<DDCManager>,
         config_manager: Arc<Mutex<ConfigManager>>,
     ) -> Self {
-        let popover = Popover::builder()
-            .width_request(350)
-            .height_request(400)
-            .position(gtk4::PositionType::Top)
-            .build();
-
-        popover.set_parent(parent);
-
         let config = config_manager.lock().await;
-        let auto_hide_delay_ms = config.config().ui.auto_hide_delay_ms;
         let preset_values = config.config().ui.preset_values.clone();
         let enable_presets = config.config().ui.enable_presets;
-        let show_monitor_selector = config.config().ui.show_monitor_selector;
         drop(config);
 
         // Main container
         let container = Box::builder()
             .orientation(Orientation::Vertical)
-            .spacing(10)
-            .margin_top(10)
-            .margin_bottom(10)
+            .spacing(8)
+            .margin_top(8)
+            .margin_bottom(8)
             .margin_start(12)
             .margin_end(12)
             .build();
 
-        // Monitor selector
+        // Monitor selector — always visible
+        let selector_row = Box::builder()
+            .orientation(Orientation::Horizontal)
+            .spacing(8)
+            .margin_bottom(4)
+            .build();
+        let label = Label::builder()
+            .label("Monitor:")
+            .halign(gtk4::Align::Start)
+            .build();
         let monitor_selector = ComboBoxText::new();
-        if show_monitor_selector {
-            let selector_row = Box::builder()
-                .orientation(Orientation::Horizontal)
-                .spacing(8)
-                .build();
-            let label = Label::builder().label("Monitor:").halign(gtk4::Align::Start).build();
-            selector_row.append(&label);
-            selector_row.append(&monitor_selector);
-            container.append(&selector_row);
-        }
+        monitor_selector.set_hexpand(true);
+        selector_row.append(&label);
+        selector_row.append(&monitor_selector);
+        container.append(&selector_row);
 
         // Brightness slider
         let brightness_slider = BrightnessSlider::new();
@@ -85,7 +71,7 @@ impl BrightnessPopup {
 
         // Preset buttons
         let mut preset_buttons = Vec::new();
-        if enable_presets {
+        if enable_presets && !preset_values.is_empty() {
             let preset_box = Box::builder()
                 .orientation(Orientation::Horizontal)
                 .spacing(6)
@@ -94,7 +80,7 @@ impl BrightnessPopup {
 
             for &value in &preset_values {
                 let button = Button::builder()
-                    .label(&value.to_string())
+                    .label(&format!("{}%", value))
                     .css_classes(["preset-button"])
                     .build();
                 preset_box.append(&button);
@@ -103,27 +89,24 @@ impl BrightnessPopup {
             container.append(&preset_box);
         }
 
-        // Separator
-        container.append(&gtk4::Separator::new(Orientation::Horizontal));
+        // Window
+        let window = Window::builder()
+            .title("Brightness Control")
+            .transient_for(parent)
+            .resizable(false)
+            .default_width(380)
+            .build();
 
-        // VCP controls
-        let mut vcp_controls = VCPControlsContainer::new();
-        vcp_controls.add_sections(&[0x12, 0x14, 0x60, 0x62]);
-        container.append(vcp_controls.widget());
-
-        popover.set_child(Some(&container));
+        window.set_child(Some(&container));
 
         let popup = Self {
-            popover,
+            window,
             brightness_slider,
             monitor_selector,
             preset_buttons,
-            vcp_controls,
             ddc_manager,
             config_manager,
             current_monitor_id: Arc::new(Mutex::new(None)),
-            auto_hide_timer: Arc::new(Mutex::new(None)),
-            auto_hide_delay_ms,
         };
 
         popup.setup_connections().await;
@@ -152,7 +135,7 @@ impl BrightnessPopup {
                         }
                     }
                     None => {
-                        // All Monitors mode: set brightness on every monitor
+                        // All Monitors mode
                         let monitors = ddc_manager.get_monitors().await;
                         for m in &monitors {
                             if let Err(e) = ddc_manager.set_brightness(&m.unique_id(), value).await {
@@ -176,7 +159,6 @@ impl BrightnessPopup {
             button.connect_clicked(move |_| {
                 let ddc_manager = ddc_manager.clone();
                 let current_monitor_id = current_monitor_id.clone();
-                let value = value;
 
                 glib::spawn_future_local(async move {
                     let monitor_id = current_monitor_id.lock().await.clone();
@@ -221,18 +203,6 @@ impl BrightnessPopup {
                             brightness_slider.set_value(brightness).await;
                         }
                     }
-                }
-            });
-        });
-
-        // Popover closed signal
-        let auto_hide_timer = self.auto_hide_timer.clone();
-        self.popover.connect_closed(move |_| {
-            let timer = auto_hide_timer.clone();
-            glib::spawn_future_local(async move {
-                let mut t = timer.lock().await;
-                if let Some(source_id) = t.take() {
-                    source_id.remove();
                 }
             });
         });
@@ -293,16 +263,16 @@ impl BrightnessPopup {
             }
         });
 
-        self.popover.popup();
+        self.window.present();
     }
 
     /// Hide the popup.
     pub fn popdown(&self) {
-        self.popover.popdown();
+        self.window.hide();
     }
 
-    /// Get the popover widget.
-    pub fn widget(&self) -> &Popover {
-        &self.popover
+    /// Get the window widget.
+    pub fn widget(&self) -> &Window {
+        &self.window
     }
 }
