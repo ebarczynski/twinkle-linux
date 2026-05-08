@@ -1,104 +1,128 @@
-//! System tray icon implementation.
+//! System tray icon implementation using libappindicator/Ayatana AppIndicator.
 
 use crate::core::config::ConfigManager;
 use crate::ddc::DDCManager;
-use gtk4::prelude::*;
-use gtk4::{Application, gio, PopoverMenu};
+use crate::ui::brightness_popup::BrightnessPopup;
+use libappindicator::AppIndicator;
 use std::sync::Arc;
+use tokio::sync::Mutex as TokioMutex;
 
-/// System tray icon.
+// Use GTK3 prelude for the tray menu (libappindicator requires GTK3 types).
+use gtk3::prelude::*;
+
+// Selective gtk4 imports — import only the traits we need to avoid conflict with gtk3::prelude::*.
+use gtk4::Application;
+use gtk4::ApplicationWindow;
+use gtk4::AboutDialog;
+use gtk4::License;
+use gtk4::prelude::ApplicationExt;
+use gtk4::prelude::GtkApplicationExt;
+use gtk4::prelude::GtkWindowExt;
+use gtk4::prelude::NativeDialogExt;
+use gtk4::prelude::WidgetExt as Gtk4WidgetExt;
+
 pub struct TrayIcon {
-    /// GTK application
-    app: Application,
-    /// Status icon (using a workaround since GTK4 doesn't have StatusIcon)
-    status_button: gtk4::MenuButton,
-    /// Popover menu for the tray icon
-    popover: PopoverMenu,
-    /// DDC manager
+    indicator: std::sync::Mutex<AppIndicator>,
     ddc_manager: Arc<DDCManager>,
-    /// Config manager
-    config_manager: Arc<tokio::sync::Mutex<ConfigManager>>,
+    config_manager: Arc<TokioMutex<ConfigManager>>,
 }
 
 impl TrayIcon {
-    /// Create a new tray icon.
     pub async fn new(
         app: Application,
         ddc_manager: Arc<DDCManager>,
-        config_manager: Arc<tokio::sync::Mutex<ConfigManager>>,
+        config_manager: Arc<TokioMutex<ConfigManager>>,
+        brightness_popup: Arc<std::sync::Mutex<Option<BrightnessPopup>>>,
+        _window: ApplicationWindow,
     ) -> Self {
-        // Create a menu button to simulate tray icon
-        let status_button = gtk4::MenuButton::builder()
-            .icon_name("display-brightness-symbolic")
-            .tooltip_text("Twinkle Linux - Monitor Brightness Control")
-            .build();
+        let mut indicator = AppIndicator::new("Twinkle Linux", "display-brightness-symbolic");
+        indicator.set_status(libappindicator::AppIndicatorStatus::Active);
+        indicator.set_title("Twinkle Linux");
 
-        // Build the menu
-        let menu = Self::build_menu();
+        let menu = gtk3::Menu::new();
 
-        // Create popover menu
-        let popover = PopoverMenu::from_model(Some(&menu));
+        // Brightness Control
+        let popup_ref = brightness_popup.clone();
+        let item = gtk3::MenuItem::with_label("Brightness Control");
+        item.connect_activate(move |_| {
+            tracing::info!("Tray: Brightness Control clicked");
+            if let Some(popup) = popup_ref.lock().unwrap().as_ref() {
+                popup.popup();
+            }
+        });
+        menu.add(&item);
 
-        status_button.set_popover(Some(&popover));
+        // Settings
+        let config_ref = config_manager.clone();
+        let app_ref = app.clone();
+        let item = gtk3::MenuItem::with_label("Settings");
+        item.connect_activate(move |_| {
+            tracing::info!("Tray: Settings clicked");
+            let config_mgr = config_ref.clone();
+            let app_clone = app_ref.clone();
+            gtk4::glib::spawn_future_local(async move {
+                let windows = app_clone.windows();
+                let parent = windows.first().cloned();
+                if let Some(parent_win) = parent {
+                    let dialog = crate::ui::widgets::settings_dialog::SettingsDialog::new(&parent_win, config_mgr).await;
+                    dialog.run();
+                }
+            });
+        });
+        menu.add(&item);
+
+        // About
+        let app_ref = app.clone();
+        let item = gtk3::MenuItem::with_label("About");
+        item.connect_activate(move |_| {
+            tracing::info!("Tray: About clicked");
+            let about = AboutDialog::builder()
+                .program_name("Twinkle Linux")
+                .version(crate::utils::version())
+                .comments("Control external monitor brightness via DDC/CI")
+                .website("https://github.com/ebarczynski/twinkle-linux")
+                .website_label("GitHub Repository")
+                .license_type(License::MitX11)
+                .authors(vec!["Edwin Barczynski"])
+                .build();
+            let windows = app_ref.windows();
+            about.set_transient_for(windows.first());
+            about.present();
+        });
+        menu.add(&item);
+
+        let sep = gtk3::SeparatorMenuItem::new();
+        menu.add(&sep);
+
+        // Quit
+        let app_ref = app.clone();
+        let item = gtk3::MenuItem::with_label("Quit");
+        item.connect_activate(move |_| {
+            tracing::info!("Tray: Quit clicked");
+            app_ref.quit();
+        });
+        menu.add(&item);
+
+        menu.show_all();
+        indicator.set_menu(&mut { let m = menu; m });
 
         Self {
-            app,
-            status_button,
-            popover,
+            indicator: std::sync::Mutex::new(indicator),
             ddc_manager,
             config_manager,
         }
     }
 
-    /// Build the tray icon menu.
-    fn build_menu() -> gio::Menu {
-        let menu = gio::Menu::new();
-
-        // Brightness section
-        let brightness_section = gio::Menu::new();
-        brightness_section.append(Some("Brightness Control"), Some("app.show-brightness"));
-        menu.append_section(None, &brightness_section);
-
-        // Settings section
-        let settings_section = gio::Menu::new();
-        settings_section.append(Some("Settings"), Some("app.show-settings"));
-        settings_section.append(Some("About"), Some("app.show-about"));
-        menu.append_section(None, &settings_section);
-
-        // Quit section
-        let quit_section = gio::Menu::new();
-        quit_section.append(Some("Quit"), Some("app.quit"));
-        menu.append_section(None, &quit_section);
-
-        menu
-    }
-
-    /// Get the status button widget.
-    pub fn widget(&self) -> &gtk4::MenuButton {
-        &self.status_button
-    }
-
-    /// Update the tray icon state.
     pub async fn update_state(&self) {
-        // Update icon based on current state
         let monitors = self.ddc_manager.get_monitors().await;
+        let mut indicator = self.indicator.lock().unwrap();
         if monitors.is_empty() {
-            self.status_button.set_icon_name("dialog-warning-symbolic");
-            self.status_button.set_tooltip_text(Some("No monitors detected"));
+            indicator.set_icon("dialog-warning-symbolic");
+            indicator.set_title("Twinkle Linux - No monitors detected");
         } else {
-            self.status_button.set_icon_name("display-brightness-symbolic");
-            let tooltip = format!(
-                "Twinkle Linux - {} monitor(s) detected",
-                monitors.len()
-            );
-            self.status_button.set_tooltip_text(Some(&tooltip));
+            indicator.set_icon("display-brightness-symbolic");
+            let title = format!("Twinkle Linux - {} monitor(s)", monitors.len());
+            indicator.set_title(&title);
         }
-    }
-
-    /// Show a notification.
-    pub fn show_notification(&self, title: &str, message: &str) {
-        // GTK4 doesn't have built-in notifications
-        // Use libnotify or a simple toast as a future enhancement
-        tracing::info!("Notification: {} - {}", title, message);
     }
 }

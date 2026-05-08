@@ -1798,6 +1798,7 @@ dependencies = [
  "directories",
  "gio 0.20.12",
  "glib 0.20.12",
+ "gtk",
  "gtk4",
  "libappindicator",
  "once_cell",

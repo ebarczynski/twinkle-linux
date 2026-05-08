@@ -9,11 +9,8 @@ use crate::core::ConfigManager;
 use crate::ddc::DDCManager;
 use crate::ui::brightness_popup::BrightnessPopup;
 use crate::ui::tray_icon::TrayIcon;
-use crate::ui::widgets::settings_dialog::SettingsDialog;
 use gtk4::prelude::*;
-use gtk4::{
-    AboutDialog, Application, ApplicationWindow, Box, Label, Orientation,
-};
+use gtk4::{Application, ApplicationWindow};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use tokio::sync::Mutex;
@@ -32,199 +29,91 @@ struct AppState {
 fn build_ui(app: &Application, state: AppState) {
     tracing::info!("build_ui: Starting UI construction");
 
-    // Create the tray icon (system tray integration)
-    let tray_icon = Arc::new(std::sync::Mutex::new(None::<TrayIcon>));
-    let brightness_popup = Arc::new(std::sync::Mutex::new(None::<BrightnessPopup>));
-
-    // Create main window (hidden by default, shown via tray icon)
+    // Create a hidden window. Needed as a transient parent for popups/dialogs,
+    // but never shown to the user — this is a tray-only app.
     let window = ApplicationWindow::builder()
         .application(app)
         .title("Twinkle Linux")
-        .default_width(400)
-        .default_height(300)
+        .default_width(1)
+        .default_height(1)
         .build();
+    // Do NOT call window.show()
 
-    // Create main container
-    let container = Box::builder()
-        .orientation(Orientation::Vertical)
-        .spacing(12)
-        .margin_top(12)
-        .margin_bottom(12)
-        .margin_start(12)
-        .margin_end(12)
-        .build();
-
-    // Create status label
-    let status_label = Label::builder()
-        .label("Initializing...")
-        .halign(gtk4::Align::Center)
-        .valign(gtk4::Align::Center)
-        .build();
-
-    container.append(&status_label);
-    window.set_child(Some(&container));
+    let brightness_popup: Arc<std::sync::Mutex<Option<BrightnessPopup>>> =
+        Arc::new(std::sync::Mutex::new(None));
 
     // Clone for async context
     let ddc_manager_for_init = state.ddc_manager.clone();
     let config_manager_for_init = state.config_manager.clone();
     let initialized_for_async = state.initialized.clone();
     let app_clone = app.clone();
-    let tray_icon_clone = tray_icon.clone();
     let brightness_popup_clone = brightness_popup.clone();
     let window_clone = window.clone();
 
     // Spawn async initialization on the GLib main context.
-    // The tokio runtime context is already entered on the main thread
-    // (see main()), so all .await calls will find the reactor.
     gtk4::glib::spawn_future_local(async move {
         tracing::info!("Async initialization task started");
 
-        // Create and set up the tray icon
+        // Initialize DDC manager first (detect monitors)
+        tracing::info!("Initializing DDC manager...");
+        let init_ok = match ddc_manager_for_init.initialize().await {
+            Ok(true) => {
+                tracing::info!("DDC manager initialized successfully");
+                true
+            }
+            Ok(false) => {
+                tracing::warn!("No monitors detected");
+                false
+            }
+            Err(e) => {
+                tracing::error!("DDC init error: {}", e);
+                false
+            }
+        };
+
+        // Create brightness popup
+        tracing::info!("Creating BrightnessPopup...");
+        let popup = BrightnessPopup::new(
+            &window_clone,
+            ddc_manager_for_init.clone(),
+            config_manager_for_init.clone(),
+        )
+        .await;
+        if init_ok {
+            popup.refresh_monitors().await;
+        }
+        *brightness_popup_clone.lock().unwrap() = Some(popup);
+        tracing::info!("BrightnessPopup created");
+
+        // Create tray icon — it appears in the system tray immediately.
+        // Pass references to popup and window so menu items work.
         tracing::info!("Creating TrayIcon...");
         let tray = TrayIcon::new(
             app_clone.clone(),
             ddc_manager_for_init.clone(),
             config_manager_for_init.clone(),
+            brightness_popup_clone.clone(),
+            window_clone,
         )
         .await;
-        tracing::info!("TrayIcon created successfully");
 
-        // Store tray icon
-        *tray_icon_clone.lock().unwrap() = Some(tray);
-
-        // Initialize DDC manager (detect monitors)
-        tracing::info!("Initializing DDC manager...");
-        match ddc_manager_for_init.initialize().await {
-            Ok(true) => {
-                tracing::info!("DDC manager initialized successfully");
-
-                // Update tray icon state
-                if let Some(tray) = tray_icon_clone.lock().unwrap().as_ref() {
-                    tray.update_state().await;
-                }
-
-                // Create brightness popup
-                tracing::info!("Creating BrightnessPopup...");
-                let popup = BrightnessPopup::new(
-                    &window_clone,
-                    ddc_manager_for_init.clone(),
-                    config_manager_for_init.clone(),
-                )
-                .await;
-                popup.refresh_monitors().await;
-                *brightness_popup_clone.lock().unwrap() = Some(popup);
-
-                // Mark as initialized
-                initialized_for_async.store(true, Ordering::SeqCst);
-                tracing::info!("Initialization complete");
-
-                // Hide the window (app runs as tray icon)
-                window_clone.hide();
-            }
-            Ok(false) => {
-                tracing::warn!("DDC manager initialization failed - no monitors detected");
-
-                // Still create popup (empty) and mark initialized so UI is usable
-                let popup = BrightnessPopup::new(
-                    &window_clone,
-                    ddc_manager_for_init.clone(),
-                    config_manager_for_init.clone(),
-                )
-                .await;
-                *brightness_popup_clone.lock().unwrap() = Some(popup);
-                initialized_for_async.store(true, Ordering::SeqCst);
-
-                // Update status label
-                window_clone.set_title(Some("Twinkle Linux - No Monitors"));
-            }
-            Err(e) => {
-                tracing::error!("DDC manager initialization error: {}", e);
-
-                // Still mark initialized so the app doesn't hang
-                initialized_for_async.store(true, Ordering::SeqCst);
-            }
+        // Update tray icon state
+        if init_ok {
+            tray.update_state().await;
         }
-        tracing::info!("Async initialization task completed");
+
+        tracing::info!("TrayIcon created, tray icon should now be visible");
+
+        // Keep tray icon alive for the rest of the application lifetime.
+        // It will be dropped when the app shuts down.
+        // Leak it intentionally — it must outlive this async block.
+        std::mem::forget(tray);
+
+        initialized_for_async.store(true, Ordering::SeqCst);
+        tracing::info!("Initialization complete");
     });
 
-    // Setup tray actions with references to popup and settings
-    setup_tray_actions(app, tray_icon, brightness_popup, state);
-
-    window.show();
-    tracing::info!("build_ui: Window shown");
-}
-
-/// Create the application actions for the tray icon menu.
-fn setup_tray_actions(
-    app: &Application,
-    tray_icon: Arc<std::sync::Mutex<Option<TrayIcon>>>,
-    brightness_popup: Arc<std::sync::Mutex<Option<BrightnessPopup>>>,
-    state: AppState,
-) {
-    // Show brightness popup action
-    let show_brightness = gtk4::gio::SimpleAction::new("show-brightness", None);
-    let popup_for_brightness = brightness_popup.clone();
-    show_brightness.connect_activate(move |_, _| {
-        tracing::info!("Show brightness popup");
-        if let Some(popup) = popup_for_brightness.lock().unwrap().as_ref() {
-            popup.popup();
-        } else {
-            tracing::warn!("Brightness popup not yet initialized");
-        }
-    });
-    app.add_action(&show_brightness);
-
-    // Show settings dialog action
-    let show_settings = gtk4::gio::SimpleAction::new("show-settings", None);
-    let config_for_settings = state.config_manager.clone();
-    let window_for_settings = app.clone();
-    show_settings.connect_activate(move |_, _| {
-        tracing::info!("Show settings dialog");
-        let config_mgr = config_for_settings.clone();
-        let app_ref = window_for_settings.clone();
-
-        gtk4::glib::spawn_future_local(async move {
-            // Get or create a transient window for the dialog
-            let windows = app_ref.windows();
-            let parent = windows.first().cloned();
-
-            if let Some(parent_win) = parent {
-                let dialog = SettingsDialog::new(&parent_win, config_mgr).await;
-                dialog.run();
-            }
-        });
-    });
-    app.add_action(&show_settings);
-
-    // Show about dialog action
-    let show_about = gtk4::gio::SimpleAction::new("show-about", None);
-    let app_for_about = app.clone();
-    show_about.connect_activate(move |_, _| {
-        tracing::info!("Show about dialog");
-
-        let about = AboutDialog::builder()
-            .program_name("Twinkle Linux")
-            .version(utils::version())
-            .comments("Control external monitor brightness via DDC/CI")
-            .website("https://github.com/ebarczynski/twinkle-linux")
-            .website_label("GitHub Repository")
-            .license_type(gtk4::License::MitX11)
-            .authors(vec!["Edwin Barczynski"])
-            .build();
-
-        about.set_transient_for(app_for_about.windows().first());
-        about.present();
-    });
-    app.add_action(&show_about);
-
-    // Quit action
-    let quit = gtk4::gio::SimpleAction::new("quit", None);
-    let app_clone = app.clone();
-    quit.connect_activate(move |_, _| {
-        tracing::info!("Quit action triggered");
-        app_clone.quit();
-    });
-    app.add_action(&quit);
+    tracing::info!("build_ui completed");
 }
 
 /// Main entry point.
@@ -248,10 +137,8 @@ fn main() {
     // Enter the tokio runtime context on the main thread.
     // This guard lives for the entire application lifetime, so ALL async
     // code running on the GLib main context (via glib::spawn_future_local)
-    // will find a valid tokio reactor. No per-future EnterGuard needed.
+    // will find a valid tokio reactor.
     let _rt_guard = runtime.enter();
-
-    // Keep the runtime alive for the duration of the application
     let _runtime = runtime;
 
     // Initialize GTK application
@@ -259,15 +146,12 @@ fn main() {
         .application_id("com.github.ebarczynski.TwinkleLinux")
         .build();
 
-    // Connect activate signal
     app.connect_activate(move |app| {
         tracing::info!("App activate callback started");
 
-        // Since we entered the tokio context on the main thread,
-        // we can use Handle::current() and block_on directly.
         let rt = tokio::runtime::Handle::current();
 
-        // Create config manager and load existing config
+        // Create config manager and load config
         tracing::info!("Creating ConfigManager...");
         let config_manager = rt.block_on(async {
             let mut mgr = ConfigManager::new().expect("Failed to create config manager");
@@ -276,7 +160,6 @@ fn main() {
             }
             mgr
         });
-        tracing::info!("ConfigManager created and config loaded");
 
         // Create DDC manager
         tracing::info!("Creating DDCManager...");
@@ -284,7 +167,6 @@ fn main() {
             rt.block_on(DDCManager::new())
                 .expect("Failed to create DDC manager"),
         );
-        tracing::info!("DDCManager created successfully");
 
         let state = AppState {
             ddc_manager,
@@ -292,12 +174,9 @@ fn main() {
             initialized: Arc::new(AtomicBool::new(false)),
         };
 
-        tracing::info!("Calling build_ui...");
         build_ui(app, state);
-        tracing::info!("build_ui completed");
     });
 
-    // Run the GTK application (blocks until quit)
     let args: Vec<String> = std::env::args().collect();
     app.run_with_args(&args);
 
