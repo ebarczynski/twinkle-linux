@@ -367,12 +367,25 @@ impl MonitorDetector {
                 }
 
                 tracing::info!("_parse_detect_output() - Getting capabilities for bus {}", bus);
-                // Get capabilities for this monitor
-                if let Ok(capabilities) = self._get_monitor_capabilities(bus).await {
-                    monitor.capabilities = capabilities;
-                    tracing::info!("_parse_detect_output() - Successfully retrieved capabilities for bus {}", bus);
-                } else {
-                    tracing::warn!("_parse_detect_output() - Failed to get capabilities for bus {}", bus);
+                // Get capabilities for this monitor.
+                // If capabilities fail, the monitor likely doesn't support DDC/CI
+                // (e.g. internal laptop panels detected on I2C). Skip it — internal
+                // displays are handled via /sys/class/backlight/ instead.
+                match self._get_monitor_capabilities(bus).await {
+                    Ok(capabilities) => {
+                        monitor.capabilities = capabilities;
+                        tracing::info!("_parse_detect_output() - Successfully retrieved capabilities for bus {}", bus);
+                    }
+                    Err(e) => {
+                        tracing::warn!(
+                            "_parse_detect_output() - Skipping monitor on bus {}: \
+                             capabilities query failed ({}) — likely internal panel, \
+                             use backlight instead",
+                            bus, e
+                        );
+                        i += 1;
+                        continue;
+                    }
                 }
 
                 let display_name = monitor.display_name();
