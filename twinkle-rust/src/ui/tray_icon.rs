@@ -155,11 +155,12 @@ impl TrayIcon {
                             gtk4::glib::spawn_future_local({
                                 let config = config_clone.clone();
                                 async move {
-                                    crate::ui::widgets::settings_dialog::SettingsDialog::new(
+                                    let dialog = crate::ui::widgets::settings_dialog::SettingsDialog::new(
                                         &parent,
                                         config,
                                     )
                                     .await;
+                                    dialog.present();
                                 }
                             });
                         }

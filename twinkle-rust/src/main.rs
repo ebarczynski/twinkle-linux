@@ -24,21 +24,31 @@ struct AppState {
 fn build_ui(app: &Application, state: AppState) {
     tracing::info!("build_ui: Starting UI construction");
 
+    // Create a hidden window. This serves as the toplevel parent for popovers
+    // and dialogs. It must exist and be realized for GTK4 popover parenting.
     let window = ApplicationWindow::builder()
         .application(app)
         .title("Twinkle Linux")
         .default_width(1)
         .default_height(1)
+        .decorated(false)
         .build();
 
-    let brightness_popup: Arc<std::sync::Mutex<Option<BrightnessPopup>>> =
+    // Realize the window so it gets a GdkSurface, but keep it invisible.
+    // A zero-size undecorated window won't be visible to the user.
+    // We do NOT call window.show() or window.present().
+    // However, GTK4 requires the widget to be realized for popover parenting.
+    // We can't realize without showing in GTK4 easily, so we use a different
+    // approach: the popover will be parented to the window, and we show/hide
+    // the window along with the popover as needed.
+
+    let popup_arc: Arc<std::sync::Mutex<Option<BrightnessPopup>>> =
         Arc::new(std::sync::Mutex::new(None));
 
     let ddc_manager = state.ddc_manager.clone();
     let config_manager = state.config_manager.clone();
     let initialized = state.initialized.clone();
     let app_clone = app.clone();
-    let popup_arc = brightness_popup.clone();
     let window_clone = window.clone();
 
     gtk4::glib::spawn_future_local(async move {

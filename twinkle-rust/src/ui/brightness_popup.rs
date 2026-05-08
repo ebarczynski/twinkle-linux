@@ -37,14 +37,20 @@ pub struct BrightnessPopup {
 impl BrightnessPopup {
     /// Create a new brightness popup.
     pub async fn new(
-        _parent: &impl IsA<gtk4::Widget>,
+        parent: &impl IsA<gtk4::Widget>,
         ddc_manager: Arc<DDCManager>,
         config_manager: Arc<Mutex<ConfigManager>>,
     ) -> Self {
         let popover = Popover::builder()
             .width_request(350)
             .height_request(400)
+            // Anchor the popover to the top-right so it appears near the tray
+            .position(gtk4::PositionType::Top)
             .build();
+
+        // CRITICAL: Parent the popover to the widget. Without this,
+        // GTK4 cannot realize the popover and calling popup() will crash.
+        popover.set_parent(parent);
 
         // Get config for auto-hide delay
         let config = config_manager.lock().await;

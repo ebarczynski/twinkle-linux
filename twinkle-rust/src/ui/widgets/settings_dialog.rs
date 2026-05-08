@@ -18,12 +18,13 @@ pub struct SettingsDialog {
 impl SettingsDialog {
     /// Create a new settings dialog.
     pub async fn new(
-        _parent: &impl IsA<gtk4::Window>,
+        parent: &impl IsA<gtk4::Window>,
         config_manager: Arc<tokio::sync::Mutex<ConfigManager>>,
     ) -> Self {
         let dialog = Dialog::builder()
             .title("Twinkle Linux Settings")
             .modal(true)
+            .transient_for(parent)
             .default_width(600)
             .default_height(500)
             .build();
@@ -428,6 +429,11 @@ impl SettingsDialog {
         container.append(&debug_logging_box);
 
         container
+    }
+
+    /// Show the dialog.
+    pub fn present(&self) {
+        self.dialog.present();
     }
 
     /// Run the dialog and return the response.
