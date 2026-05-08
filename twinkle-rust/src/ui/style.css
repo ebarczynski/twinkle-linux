@@ -1,0 +1,188 @@
+/* Twinkle Linux - Modern Dark Theme */
+/* Inspired by Material Design / iOS aesthetics */
+
+/* ─── Base Window ─── */
+window {
+    background-color: #1a1a2e;
+    border-radius: 12px;
+}
+
+/* ─── Main Container ─── */
+.main-container {
+    padding: 16px 12px 12px 12px;
+}
+
+/* ─── Header ─── */
+.header-label {
+    color: #e0e0e0;
+    font-size: 15px;
+    font-weight: 700;
+    letter-spacing: 0.3px;
+    padding: 0px 4px 10px 4px;
+}
+
+/* ─── Monitor Card ─── */
+.monitor-card {
+    background-color: #16213e;
+    border-radius: 10px;
+    padding: 10px 12px;
+    margin-bottom: 8px;
+}
+
+.monitor-card:hover {
+    background-color: #1a2744;
+}
+
+/* ─── Monitor Name Label ─── */
+.monitor-name {
+    color: #a0a0b8;
+    font-size: 11px;
+    font-weight: 500;
+    letter-spacing: 0.2px;
+    padding-bottom: 4px;
+}
+
+/* ─── Brightness Value Label ─── */
+.brightness-value {
+    color: #7c8cf8;
+    font-size: 13px;
+    font-weight: 700;
+    font-family: monospace;
+    min-width: 36px;
+}
+
+/* ─── Slider Row ─── */
+.slider-row {
+    padding: 2px 0px;
+}
+
+/* ─── Scale (Slider) ─── */
+scale {
+    min-height: 6px;
+    padding: 4px 0px;
+}
+
+scale trough {
+    min-height: 6px;
+    background-color: #2a2a4a;
+    border-radius: 3px;
+    border: none;
+}
+
+scale highlight {
+    min-height: 6px;
+    background: linear-gradient(to right, #5c6bc0, #7c8cf8);
+    border-radius: 3px;
+}
+
+scale slider {
+    min-width: 18px;
+    min-height: 18px;
+    margin: -7px;
+    background: #7c8cf8;
+    border: 2px solid #1a1a2e;
+    border-radius: 50%;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.4);
+}
+
+scale slider:hover {
+    background: #8fa0ff;
+}
+
+scale slider:active {
+    background: #5c6bc0;
+}
+
+/* ─── Preset Buttons Row ─── */
+.presets-row {
+    padding: 4px 0px 0px 0px;
+}
+
+/* ─── Preset Buttons ─── */
+.preset-button {
+    background-color: #2a2a4a;
+    color: #a0a0b8;
+    border-radius: 6px;
+    padding: 3px 8px;
+    font-size: 11px;
+    font-weight: 600;
+    border: none;
+    min-width: 28px;
+}
+
+.preset-button:hover {
+    background-color: #3a3a5a;
+    color: #e0e0e0;
+}
+
+.preset-button:active {
+    background-color: #5c6bc0;
+    color: #ffffff;
+}
+
+/* ─── Icon styling ─── */
+.monitor-icon {
+    color: #5c6bc0;
+    font-size: 14px;
+}
+
+.sun-icon {
+    color: #ffca28;
+    font-size: 12px;
+}
+
+.sun-dim-icon {
+    color: #5c5c70;
+    font-size: 12px;
+}
+
+/* ─── "All Monitors" Override Button ─── */
+.all-monitors-button {
+    background-color: #5c6bc0;
+    color: #ffffff;
+    border-radius: 8px;
+    padding: 6px 12px;
+    font-size: 12px;
+    font-weight: 600;
+    border: none;
+}
+
+.all-monitors-button:hover {
+    background-color: #7c8cf8;
+}
+
+.all-monitors-button:active {
+    background-color: #3f51b5;
+}
+
+.all-monitors-button.active {
+    background-color: #7c8cf8;
+    box-shadow: inset 0 0 0 2px #9fa8ff;
+}
+
+/* ─── Override Slider Row ─── */
+.override-row {
+    background-color: #1e2748;
+    border-radius: 8px;
+    padding: 8px 12px;
+    margin-bottom: 8px;
+    border: 1px solid #3a3a5a;
+}
+
+/* ─── Bottom Toolbar ─── */
+.bottom-toolbar {
+    padding: 6px 0px 0px 0px;
+}
+
+.icon-button {
+    background-color: transparent;
+    color: #7c7c90;
+    border-radius: 8px;
+    padding: 4px 8px;
+    border: none;
+}
+
+.icon-button:hover {
+    background-color: #2a2a4a;
+    color: #e0e0e0;
+}

@@ -15,6 +15,7 @@ use std::sync::{Arc, Mutex};
 #[derive(Debug)]
 pub enum TrayCommand {
     ShowBrightness,
+    SetAllBrightness(u16),
     ShowSettings,
     ShowAbout,
     Quit,
@@ -50,12 +51,17 @@ impl Tray for TrayState {
         }
     }
 
+    /// Left-click on tray icon opens brightness popup directly.
     fn activate(&mut self, _x: i32, _y: i32) {
         let _ = self.tx.send(TrayCommand::ShowBrightness);
     }
 
     fn menu(&self) -> Vec<MenuItem<Self>> {
         let tx_show = self.tx.clone();
+        let tx_25 = self.tx.clone();
+        let tx_50 = self.tx.clone();
+        let tx_75 = self.tx.clone();
+        let tx_100 = self.tx.clone();
         let tx_settings = self.tx.clone();
         let tx_about = self.tx.clone();
         let tx_quit = self.tx.clone();
@@ -70,6 +76,45 @@ impl Tray for TrayState {
                 ..Default::default()
             }
             .into(),
+            MenuItem::Separator,
+            // Quick brightness presets — set ALL monitors at once
+            StandardItem {
+                label: "  25%  (Night)".into(),
+                icon_name: "weather-clear-night-symbolic".into(),
+                activate: Box::new(move |_this: &mut Self| {
+                    let _ = tx_25.send(TrayCommand::SetAllBrightness(25));
+                }),
+                ..Default::default()
+            }
+            .into(),
+            StandardItem {
+                label: "  50%  (Indoor)".into(),
+                icon_name: "weather-overcast-symbolic".into(),
+                activate: Box::new(move |_this: &mut Self| {
+                    let _ = tx_50.send(TrayCommand::SetAllBrightness(50));
+                }),
+                ..Default::default()
+            }
+            .into(),
+            StandardItem {
+                label: "  75%  (Day)".into(),
+                icon_name: "weather-few-clouds-symbolic".into(),
+                activate: Box::new(move |_this: &mut Self| {
+                    let _ = tx_75.send(TrayCommand::SetAllBrightness(75));
+                }),
+                ..Default::default()
+            }
+            .into(),
+            StandardItem {
+                label: "  100%  (Max)".into(),
+                icon_name: "weather-clear-symbolic".into(),
+                activate: Box::new(move |_this: &mut Self| {
+                    let _ = tx_100.send(TrayCommand::SetAllBrightness(100));
+                }),
+                ..Default::default()
+            }
+            .into(),
+            MenuItem::Separator,
             StandardItem {
                 label: "Settings".into(),
                 icon_name: "preferences-system-symbolic".into(),
@@ -79,7 +124,6 @@ impl Tray for TrayState {
                 ..Default::default()
             }
             .into(),
-            MenuItem::Separator,
             StandardItem {
                 label: "About".into(),
                 icon_name: "help-about-symbolic".into(),
@@ -112,6 +156,7 @@ impl TrayIcon {
         app: &Application,
         popup: Arc<Mutex<Option<BrightnessPopup>>>,
         config_manager: Arc<tokio::sync::Mutex<crate::core::ConfigManager>>,
+        ddc_manager: Arc<crate::ddc::DDCManager>,
     ) -> Self {
         let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<TrayCommand>();
 
@@ -134,10 +179,10 @@ impl TrayIcon {
         };
 
         // Process tray commands on the GLib main context.
-        // We poll the tokio channel using a GLib idle callback.
         let app_clone = app.clone();
         let popup_clone = popup.clone();
         let config_clone = config_manager.clone();
+        let ddc_clone = ddc_manager.clone();
 
         gtk4::glib::timeout_add_local(std::time::Duration::from_millis(100), move || {
             // Drain all pending commands
@@ -147,6 +192,17 @@ impl TrayIcon {
                         if let Some(ref popup) = *popup_clone.lock().unwrap() {
                             popup.popup();
                         }
+                    }
+                    TrayCommand::SetAllBrightness(value) => {
+                        let ddc = ddc_clone.clone();
+                        gtk4::glib::spawn_future_local(async move {
+                            let monitors = ddc.get_monitors().await;
+                            for m in &monitors {
+                                if let Err(e) = ddc.set_brightness(&m.unique_id(), value).await {
+                                    tracing::warn!("Quick set failed on {}: {}", m.display_name(), e);
+                                }
+                            }
+                        });
                     }
                     TrayCommand::ShowSettings => {
                         let windows = app_clone.windows();
@@ -171,7 +227,7 @@ impl TrayIcon {
                         let dialog = AboutDialog::builder()
                             .program_name("Twinkle Linux")
                             .version(env!("CARGO_PKG_VERSION"))
-                            .comments("Monitor brightness control via DDC/CI")
+                            .comments("Monitor brightness control for Linux")
                             .license_type(License::MitX11)
                             .website("https://github.com/ebarczynski/twinkle-linux")
                             .authors(vec!["Edwin Barczynski".to_string()])

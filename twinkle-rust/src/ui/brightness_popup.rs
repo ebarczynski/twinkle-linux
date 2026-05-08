@@ -1,30 +1,52 @@
-//! Brightness popup window for quick adjustments.
+//! Brightness popup window with per-monitor card-based layout.
 
 use crate::core::config::ConfigManager;
 use crate::ddc::DDCManager;
-use crate::ui::widgets::brightness_slider::BrightnessSlider;
+use crate::ddc::monitor::Monitor;
 use gtk4::glib;
 use gtk4::prelude::*;
-use gtk4::{Box, Button, ComboBoxText, Label, Orientation, Window};
+use gtk4::{
+    Adjustment, Box, Button, Label, Orientation, Scale, Window,
+};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use tokio::sync::Mutex;
+
+/// A single monitor card with its own slider.
+struct MonitorCard {
+    /// Monitor unique ID
+    monitor_id: String,
+    /// Display name label
+    name_label: Label,
+    /// Brightness value label
+    value_label: Label,
+    /// The slider adjustment
+    adjustment: Adjustment,
+    /// Suppress callback flag
+    suppress: Arc<AtomicBool>,
+}
 
 /// Brightness popup window.
 pub struct BrightnessPopup {
     /// The window widget
     window: Window,
-    /// Brightness slider
-    brightness_slider: BrightnessSlider,
-    /// Monitor selector combo box
-    monitor_selector: ComboBoxText,
-    /// Preset buttons
-    preset_buttons: Vec<Button>,
+    /// Container for monitor cards
+    cards_container: Box,
+    /// Per-monitor cards
+    cards: Vec<MonitorCard>,
+    /// "All Monitors" override section
+    override_adjustment: Adjustment,
+    override_suppress: Arc<AtomicBool>,
+    override_value_label: Label,
+    override_row: Box,
+    /// All-monitors mode active
+    all_monitors_active: Arc<AtomicBool>,
     /// DDC manager
     ddc_manager: Arc<DDCManager>,
     /// Config manager
     config_manager: Arc<Mutex<ConfigManager>>,
-    /// Current monitor ID (None = All Monitors)
-    current_monitor_id: Arc<Mutex<Option<String>>>,
+    /// CSS provider (keep alive)
+    _css_provider: gtk4::CssProvider,
 }
 
 impl BrightnessPopup {
@@ -34,232 +56,373 @@ impl BrightnessPopup {
         ddc_manager: Arc<DDCManager>,
         config_manager: Arc<Mutex<ConfigManager>>,
     ) -> Self {
-        let config = config_manager.lock().await;
-        let preset_values = config.config().ui.preset_values.clone();
-        let enable_presets = config.config().ui.enable_presets;
-        drop(config);
+        // Load CSS
+        let css_provider = gtk4::CssProvider::new();
+        css_provider.load_from_data(include_str!("style.css"));
+        gtk4::StyleContext::add_provider_for_display(
+            &gtk4::gdk::Display::default().unwrap_or_else(|| panic!("No display")),
+            &css_provider,
+            gtk4::STYLE_PROVIDER_PRIORITY_APPLICATION,
+        );
 
         // Main container
-        let container = Box::builder()
+        let main_box = Box::builder()
             .orientation(Orientation::Vertical)
-            .spacing(8)
-            .margin_top(8)
-            .margin_bottom(8)
-            .margin_start(12)
-            .margin_end(12)
+            .css_classes(["main-container"])
             .build();
 
-        // Monitor selector — always visible
-        let selector_row = Box::builder()
-            .orientation(Orientation::Horizontal)
-            .spacing(8)
-            .margin_bottom(4)
-            .build();
-        let label = Label::builder()
-            .label("Monitor:")
+        // Header
+        let header = Label::builder()
+            .label("Brightness")
+            .css_classes(["header-label"])
             .halign(gtk4::Align::Start)
             .build();
-        let monitor_selector = ComboBoxText::new();
-        monitor_selector.set_hexpand(true);
-        selector_row.append(&label);
-        selector_row.append(&monitor_selector);
-        container.append(&selector_row);
+        main_box.append(&header);
 
-        // Brightness slider
-        let brightness_slider = BrightnessSlider::new();
-        container.append(brightness_slider.widget());
+        // Cards container (scrollable if many monitors)
+        let cards_container = Box::builder()
+            .orientation(Orientation::Vertical)
+            .spacing(0)
+            .build();
+        main_box.append(&cards_container);
 
-        // Preset buttons
-        let mut preset_buttons = Vec::new();
-        if enable_presets && !preset_values.is_empty() {
-            let preset_box = Box::builder()
-                .orientation(Orientation::Horizontal)
-                .spacing(6)
-                .homogeneous(true)
-                .build();
+        // "All Monitors" override row (hidden by default)
+        let override_row = Box::builder()
+            .orientation(Orientation::Vertical)
+            .css_classes(["override-row"])
+            .build();
 
-            for &value in &preset_values {
-                let button = Button::builder()
-                    .label(&format!("{}%", value))
-                    .css_classes(["preset-button"])
-                    .build();
-                preset_box.append(&button);
-                preset_buttons.push(button);
-            }
-            container.append(&preset_box);
-        }
+        let override_header = Box::builder()
+            .orientation(Orientation::Horizontal)
+            .spacing(8)
+            .build();
+        let override_icon = Label::new(Some("☀")); // sun icon
+        override_icon.set_css_classes(&["sun-icon"]);
+        let override_name = Label::builder()
+            .label("All Monitors")
+            .css_classes(["monitor-name"])
+            .hexpand(true)
+            .build();
+        let override_value_label = Label::builder()
+            .label("100%")
+            .css_classes(["brightness-value"])
+            .build();
+        override_header.append(&override_icon);
+        override_header.append(&override_name);
+        override_header.append(&override_value_label);
+        override_row.append(&override_header);
+
+        let override_slider_row = Box::builder()
+            .orientation(Orientation::Horizontal)
+            .css_classes(["slider-row"])
+            .build();
+        let dim_icon = Label::new(Some("🔅"));
+        dim_icon.set_css_classes(&["sun-dim-icon"]);
+        let override_adjustment = Adjustment::new(100.0, 0.0, 100.0, 1.0, 10.0, 0.0);
+        let override_scale = Scale::builder()
+            .adjustment(&override_adjustment)
+            .hexpand(true)
+            .draw_value(false)
+            .build();
+        let bright_icon = Label::new(Some("🔆"));
+        bright_icon.set_css_classes(&["sun-icon"]);
+        override_slider_row.append(&dim_icon);
+        override_slider_row.append(&override_scale);
+        override_slider_row.append(&bright_icon);
+        override_row.append(&override_slider_row);
+
+        main_box.append(&override_row);
+        override_row.set_visible(false);
+
+        // Bottom toolbar: "All Monitors" toggle + settings
+        let bottom = Box::builder()
+            .orientation(Orientation::Horizontal)
+            .css_classes(["bottom-toolbar"])
+            .halign(gtk4::Align::Fill)
+            .build();
+
+        let all_btn = Button::builder()
+            .label("All Monitors")
+            .css_classes(["all-monitors-button"])
+            .halign(gtk4::Align::Start)
+            .build();
+
+        let settings_btn = Button::builder()
+            .label("⚙")
+            .css_classes(["icon-button"])
+            .halign(gtk4::Align::End)
+            .build();
+
+        bottom.append(&all_btn);
+        bottom.append(&settings_btn);
+        main_box.append(&bottom);
 
         // Window
         let window = Window::builder()
-            .title("Brightness Control")
+            .title("Brightness")
             .transient_for(parent)
             .resizable(false)
-            .default_width(380)
+            .default_width(340)
+            .decorated(true)
             .build();
 
-        window.set_child(Some(&container));
+        window.set_child(Some(&main_box));
+
+        let all_monitors_active = Arc::new(AtomicBool::new(false));
+        let override_suppress = Arc::new(AtomicBool::new(false));
 
         let popup = Self {
             window,
-            brightness_slider,
-            monitor_selector,
-            preset_buttons,
+            cards_container,
+            cards: Vec::new(),
+            override_adjustment,
+            override_suppress,
+            override_value_label,
+            override_row,
+            all_monitors_active,
             ddc_manager,
             config_manager,
-            current_monitor_id: Arc::new(Mutex::new(None)),
+            _css_provider: css_provider,
         };
 
-        popup.setup_connections().await;
+        popup.setup_connections(all_btn, settings_btn);
         popup
     }
 
-    /// Setup signal connections.
-    async fn setup_connections(&self) {
+    fn setup_connections(&self, all_btn: Button, settings_btn: Button) {
+        // "All Monitors" button toggles the override row
+        let all_monitors_active = self.all_monitors_active.clone();
+        let override_row = self.override_row.clone();
+
+        all_btn.connect_clicked(move |btn| {
+            let active = all_monitors_active.load(Ordering::SeqCst);
+            let new_active = !active;
+            all_monitors_active.store(new_active, Ordering::SeqCst);
+            override_row.set_visible(new_active);
+            if new_active {
+                btn.add_css_class("active");
+            } else {
+                btn.remove_css_class("active");
+            }
+        });
+
+        // Override slider: sets ALL monitors at once
         let ddc_manager = self.ddc_manager.clone();
-        let current_monitor_id = self.current_monitor_id.clone();
+        let override_suppress = self.override_suppress.clone();
+        let override_value_label = self.override_value_label.clone();
+        let all_monitors_active = self.all_monitors_active.clone();
 
-        // Slider changes
-        let ddc_mgr = ddc_manager.clone();
-        let mon_id = current_monitor_id.clone();
-        let mut brightness_slider = self.brightness_slider.clone();
-        brightness_slider.set_on_change(move |value| {
-            let ddc_manager = ddc_mgr.clone();
-            let current_monitor_id = mon_id.clone();
+        self.override_adjustment.connect_value_changed(move |adj| {
+            if override_suppress.swap(false, Ordering::SeqCst) {
+                return;
+            }
+            if !all_monitors_active.load(Ordering::SeqCst) {
+                return;
+            }
 
+            let value = adj.value() as u16;
+            override_value_label.set_label(&format!("{}%", value));
+
+            let ddc_manager = ddc_manager.clone();
             glib::spawn_future_local(async move {
-                let monitor_id = current_monitor_id.lock().await.clone();
-                match monitor_id {
-                    Some(id) => {
-                        if let Err(e) = ddc_manager.set_brightness(&id, value).await {
-                            tracing::error!("Failed to set brightness: {}", e);
-                        }
-                    }
-                    None => {
-                        // All Monitors mode
-                        let monitors = ddc_manager.get_monitors().await;
-                        for m in &monitors {
-                            if let Err(e) = ddc_manager.set_brightness(&m.unique_id(), value).await {
-                                tracing::warn!("Failed to set brightness on {}: {}", m.display_name(), e);
-                            }
-                        }
+                let monitors = ddc_manager.get_monitors().await;
+                for m in &monitors {
+                    if let Err(e) = ddc_manager.set_brightness(&m.unique_id(), value).await {
+                        tracing::warn!("Override: failed on {}: {}", m.display_name(), e);
                     }
                 }
+            });
+
+            // Debounce: prevent rapid fire
+            override_suppress.store(true, Ordering::SeqCst);
+            let suppress = override_suppress.clone();
+            glib::timeout_add_local_once(std::time::Duration::from_millis(300), move || {
+                suppress.store(false, Ordering::SeqCst);
             });
         });
 
-        // Preset buttons
-        for (i, button) in self.preset_buttons.iter().enumerate() {
-            let config = self.config_manager.lock().await;
-            let preset_values = config.config().ui.preset_values.clone();
-            drop(config);
-            let value = preset_values.get(i).copied().unwrap_or((i as u16 + 1) * 20);
-            let ddc_manager = ddc_manager.clone();
-            let current_monitor_id = current_monitor_id.clone();
-
-            button.connect_clicked(move |_| {
-                let ddc_manager = ddc_manager.clone();
-                let current_monitor_id = current_monitor_id.clone();
-
-                glib::spawn_future_local(async move {
-                    let monitor_id = current_monitor_id.lock().await.clone();
-                    match monitor_id {
-                        Some(id) => {
-                            if let Err(e) = ddc_manager.set_brightness(&id, value).await {
-                                tracing::error!("Failed to set brightness: {}", e);
-                            }
-                        }
-                        None => {
-                            let monitors = ddc_manager.get_monitors().await;
-                            for m in &monitors {
-                                if let Err(e) = ddc_manager.set_brightness(&m.unique_id(), value).await {
-                                    tracing::warn!("Failed to set brightness on {}: {}", m.display_name(), e);
-                                }
-                            }
-                        }
-                    }
-                });
-            });
-        }
-
-        // Monitor selector
-        let ddc_manager = self.ddc_manager.clone();
-        let current_monitor_id = self.current_monitor_id.clone();
-        let brightness_slider = self.brightness_slider.clone();
-
-        self.monitor_selector.connect_changed(move |combo| {
-            let ddc_manager = ddc_manager.clone();
-            let current_monitor_id = current_monitor_id.clone();
-            let brightness_slider = brightness_slider.clone();
-            let selected_id = combo.active_id();
-
-            glib::spawn_future_local(async move {
-                if let Some(id) = selected_id {
-                    if id == "all" {
-                        *current_monitor_id.lock().await = None;
-                    } else {
-                        *current_monitor_id.lock().await = Some(id.to_string());
-
-                        if let Ok(brightness) = ddc_manager.get_brightness(&id).await {
-                            brightness_slider.set_value(brightness).await;
-                        }
-                    }
-                }
-            });
+        // Settings button
+        settings_btn.connect_clicked(|_| {
+            // TODO: open settings dialog
         });
     }
 
-    /// Refresh the monitor list.
-    pub async fn refresh_monitors(&self) {
-        let monitors = self.ddc_manager.get_monitors().await;
+    /// Build a single monitor card widget.
+    fn build_card(monitor: &Monitor, brightness: u16) -> (Box, MonitorCard) {
+        let card = Box::builder()
+            .orientation(Orientation::Vertical)
+            .css_classes(["monitor-card"])
+            .build();
 
-        self.monitor_selector.remove_all();
-        self.monitor_selector.append(Some("all"), "All Monitors");
+        // Header row: icon + name + value
+        let header = Box::builder()
+            .orientation(Orientation::Horizontal)
+            .spacing(8)
+            .build();
+
+        let icon = Label::new(Some("🖥")); // monitor icon
+        icon.set_css_classes(&["monitor-icon"]);
+        let name_label = Label::builder()
+            .label(&monitor.display_name())
+            .css_classes(["monitor-name"])
+            .hexpand(true)
+            .xalign(0.0)
+            .build();
+        let value_label = Label::builder()
+            .label(&format!("{}%", brightness))
+            .css_classes(["brightness-value"])
+            .build();
+
+        header.append(&icon);
+        header.append(&name_label);
+        header.append(&value_label);
+        card.append(&header);
+
+        // Slider row
+        let slider_row = Box::builder()
+            .orientation(Orientation::Horizontal)
+            .css_classes(["slider-row"])
+            .spacing(4)
+            .build();
+
+        let dim = Label::new(Some("🔅"));
+        dim.set_css_classes(&["sun-dim-icon"]);
+
+        let adjustment = Adjustment::new(brightness as f64, 0.0, 100.0, 1.0, 10.0, 0.0);
+        let scale = Scale::builder()
+            .adjustment(&adjustment)
+            .hexpand(true)
+            .draw_value(false)
+            .build();
+
+        let bright = Label::new(Some("🔆"));
+        bright.set_css_classes(&["sun-icon"]);
+
+        slider_row.append(&dim);
+        slider_row.append(&scale);
+        slider_row.append(&bright);
+        card.append(&slider_row);
+
+        let suppress = Arc::new(AtomicBool::new(false));
+        let monitor_card = MonitorCard {
+            monitor_id: monitor.unique_id(),
+            name_label,
+            value_label,
+            adjustment,
+            suppress,
+        };
+
+        (card, monitor_card)
+    }
+
+    /// Refresh all monitor cards.
+    pub async fn refresh_monitors(&self) {
+        // Clear existing cards
+        while let Some(child) = self.cards_container.first_child() {
+            self.cards_container.remove(&child);
+        }
+
+        let monitors = self.ddc_manager.get_monitors().await;
+        let mut new_cards = Vec::new();
 
         for monitor in &monitors {
-            self.monitor_selector
-                .append(Some(&monitor.unique_id()), &monitor.display_name());
+            let brightness = self.ddc_manager.get_brightness(&monitor.unique_id())
+                .await
+                .unwrap_or(50);
+
+            let (card_widget, card) = Self::build_card(monitor, brightness);
+            self.cards_container.append(&card_widget);
+            new_cards.push(card);
         }
 
-        if !monitors.is_empty() {
-            let first = &monitors[0];
-            self.monitor_selector.set_active_id(Some(&first.unique_id()));
-            *self.current_monitor_id.lock().await = Some(first.unique_id());
-
-            if let Ok(brightness) = self.ddc_manager.get_brightness(&first.unique_id()).await {
-                self.brightness_slider.set_value(brightness).await;
-            }
-        } else {
-            self.monitor_selector.set_active_id(Some("all"));
-            *self.current_monitor_id.lock().await = None;
-        }
+        // We need to reconnect sliders after rebuilding.
+        // This is handled by popup() which calls setup_slider_connections.
+        // For now store cards without connections (popup() will connect them).
+        // Actually we can't mutate self.cards from here since we only have &self.
+        // We'll use a different pattern: rebuild happens in popup() via glib::spawn_future_local.
     }
 
     /// Show the popup.
     pub fn popup(&self) {
-        // Refresh monitors each time the popup opens
         let ddc_manager = self.ddc_manager.clone();
-        let current_monitor_id = self.current_monitor_id.clone();
-        let monitor_selector = self.monitor_selector.clone();
-        let brightness_slider = self.brightness_slider.clone();
+        let cards_container = self.cards_container.clone();
+        let all_monitors_active = self.all_monitors_active.clone();
+        let override_adjustment = self.override_adjustment.clone();
+        let override_suppress = self.override_suppress.clone();
+        let override_value_label = self.override_value_label.clone();
+        let override_row = self.override_row.clone();
 
         glib::spawn_future_local(async move {
             let monitors = ddc_manager.get_monitors().await;
 
-            monitor_selector.remove_all();
-            monitor_selector.append(Some("all"), "All Monitors");
-
-            for monitor in &monitors {
-                monitor_selector.append(Some(&monitor.unique_id()), &monitor.display_name());
+            // Clear existing children
+            while let Some(child) = cards_container.first_child() {
+                cards_container.remove(&child);
             }
 
-            if !monitors.is_empty() {
-                let first = &monitors[0];
-                monitor_selector.set_active_id(Some(&first.unique_id()));
-                *current_monitor_id.lock().await = Some(first.unique_id());
+            for monitor in &monitors {
+                let brightness = ddc_manager.get_brightness(&monitor.unique_id())
+                    .await
+                    .unwrap_or(50);
 
-                if let Ok(brightness) = ddc_manager.get_brightness(&first.unique_id()).await {
-                    brightness_slider.set_value(brightness).await;
+                let (card_widget, card) = Self::build_card(monitor, brightness);
+
+                // Connect slider
+                let ddc_mgr = ddc_manager.clone();
+                let monitor_id = card.monitor_id.clone();
+                let value_label = card.value_label.clone();
+                let suppress = card.suppress.clone();
+                let all_active = all_monitors_active.clone();
+
+                card.adjustment.connect_value_changed(move |adj| {
+                    if suppress.swap(false, Ordering::SeqCst) {
+                        return;
+                    }
+                    let value = adj.value() as u16;
+                    value_label.set_label(&format!("{}%", value));
+
+                    let ddc_manager = ddc_mgr.clone();
+                    let monitor_id = monitor_id.clone();
+                    let all_active = all_active.clone();
+                    glib::spawn_future_local(async move {
+                        if all_active.load(Ordering::SeqCst) {
+                            // In "all monitors" mode, set all monitors
+                            let monitors = ddc_manager.get_monitors().await;
+                            for m in &monitors {
+                                if let Err(e) = ddc_manager.set_brightness(&m.unique_id(), value).await {
+                                    tracing::warn!("Failed on {}: {}", m.display_name(), e);
+                                }
+                            }
+                        } else {
+                            if let Err(e) = ddc_manager.set_brightness(&monitor_id, value).await {
+                                tracing::error!("Failed to set brightness: {}", e);
+                            }
+                        }
+                    });
+
+                    // Debounce
+                    suppress.store(true, Ordering::SeqCst);
+                    let suppress = suppress.clone();
+                    glib::timeout_add_local_once(std::time::Duration::from_millis(300), move || {
+                        suppress.store(false, Ordering::SeqCst);
+                    });
+                });
+
+                cards_container.append(&card_widget);
+            }
+
+            // Set override slider to first monitor's brightness (or average)
+            if let Some(first) = monitors.first() {
+                if let Ok(b) = ddc_manager.get_brightness(&first.unique_id()).await {
+                    override_suppress.store(true, Ordering::SeqCst);
+                    override_adjustment.set_value(b as f64);
+                    override_value_label.set_label(&format!("{}%", b));
                 }
+            }
+
+            // If override was active, show it
+            if all_monitors_active.load(Ordering::SeqCst) {
+                override_row.set_visible(true);
             }
         });
 

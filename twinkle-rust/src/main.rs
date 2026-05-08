@@ -55,7 +55,7 @@ fn build_ui(app: &Application, state: AppState) {
         tracing::info!("Async initialization task started");
 
         tracing::info!("Initializing DDC manager...");
-        let init_ok = match ddc_manager.initialize().await {
+        let _init_ok = match ddc_manager.initialize().await {
             Ok(true) => {
                 tracing::info!("DDC manager initialized successfully");
                 true
@@ -77,14 +77,12 @@ fn build_ui(app: &Application, state: AppState) {
             config_manager.clone(),
         )
         .await;
-        if init_ok {
-            popup.refresh_monitors().await;
-        }
+        // No separate refresh_monitors() call — popup() rebuilds cards each time
         *popup_arc.lock().unwrap() = Some(popup);
         tracing::info!("BrightnessPopup created");
 
         tracing::info!("Creating TrayIcon...");
-        let _tray = TrayIcon::new(&app_clone, popup_arc.clone(), config_manager.clone());
+        let _tray = TrayIcon::new(&app_clone, popup_arc.clone(), config_manager.clone(), ddc_manager.clone());
         tracing::info!("TrayIcon created, icon should now be visible in system tray");
 
         // Keep tray alive for the app lifetime
