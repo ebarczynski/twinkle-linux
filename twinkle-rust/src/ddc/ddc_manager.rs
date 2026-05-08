@@ -237,9 +237,14 @@ impl DDCManager {
     ) -> DDCResult<()> {
         let monitor = self.get_monitor_by_id(monitor_id).await?;
 
-        // Validate VCP code support
+        // Warn if VCP code is not in reported capabilities, but don't block —
+        // capabilities parsing can be incomplete (e.g. monitors that don't
+        // respond to capabilities queries). Try the command anyway.
         if !monitor.capabilities.supports_vcp(vcp_code) {
-            return Err(DDCError::VCPNotSupported { vcp_code });
+            tracing::warn!(
+                "VCP code 0x{:02X} not reported in capabilities for {}, attempting anyway",
+                vcp_code, monitor_id
+            );
         }
 
         // Validate value

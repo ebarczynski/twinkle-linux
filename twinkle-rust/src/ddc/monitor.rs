@@ -268,8 +268,11 @@ impl MonitorDetector {
         tracing::info!("_parse_capabilities_output() - Parsing capabilities from {} bytes", output.len());
         let mut capabilities = MonitorCapabilities::default();
 
-        // Parse supported VCP codes
-        let vcp_re = Regex::new(r"VCP code ([0-9A-Fa-f]{2})").unwrap();
+        // Parse supported VCP codes.
+        // ddcutil capabilities output uses "Feature: XX" format, e.g.:
+        //   Feature: 10 (Brightness)
+        //   Feature: 12 (Contrast)
+        let vcp_re = Regex::new(r"Feature:\s*([0-9A-Fa-f]{2})").unwrap();
         let mut vcp_count = 0;
         for caps in vcp_re.captures_iter(output) {
             if let Some(code_str) = caps.get(1) {

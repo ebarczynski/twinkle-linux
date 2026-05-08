@@ -26,7 +26,7 @@ pub struct BrightnessPopup {
     ddc_manager: Arc<DDCManager>,
     /// Config manager
     config_manager: Arc<Mutex<ConfigManager>>,
-    /// Current monitor ID
+    /// Current monitor ID (None = All Monitors)
     current_monitor_id: Arc<Mutex<Option<String>>>,
     /// Auto-hide timer
     auto_hide_timer: Arc<Mutex<Option<glib::SourceId>>>,
@@ -44,74 +44,71 @@ impl BrightnessPopup {
         let popover = Popover::builder()
             .width_request(350)
             .height_request(400)
-            // Anchor the popover to the top-right so it appears near the tray
             .position(gtk4::PositionType::Top)
             .build();
 
-        // CRITICAL: Parent the popover to the widget. Without this,
-        // GTK4 cannot realize the popover and calling popup() will crash.
         popover.set_parent(parent);
 
-        // Get config for auto-hide delay
         let config = config_manager.lock().await;
         let auto_hide_delay_ms = config.config().ui.auto_hide_delay_ms;
+        let preset_values = config.config().ui.preset_values.clone();
+        let enable_presets = config.config().ui.enable_presets;
+        let show_monitor_selector = config.config().ui.show_monitor_selector;
         drop(config);
 
-        // Create main container
+        // Main container
         let container = Box::builder()
             .orientation(Orientation::Vertical)
-            .spacing(12)
-            .margin_top(12)
-            .margin_bottom(12)
+            .spacing(10)
+            .margin_top(10)
+            .margin_bottom(10)
             .margin_start(12)
             .margin_end(12)
             .build();
 
-        // Create monitor selector
-        let monitor_selector_label = Label::builder()
-            .label("Monitor:")
-            .halign(gtk4::Align::Start)
-            .build();
-
+        // Monitor selector
         let monitor_selector = ComboBoxText::new();
-        monitor_selector.append(Some("all"), "All Monitors");
-
-        let monitor_selector_box = Box::builder()
-            .orientation(Orientation::Horizontal)
-            .spacing(8)
-            .build();
-        monitor_selector_box.append(&monitor_selector_label);
-        monitor_selector_box.append(&monitor_selector);
-
-        // Create brightness slider
-        let brightness_slider = BrightnessSlider::new();
-
-        // Create preset buttons
-        let preset_box = Box::builder()
-            .orientation(Orientation::Horizontal)
-            .spacing(8)
-            .build();
-
-        let preset_values = vec![20, 40, 60, 80, 100];
-        let mut preset_buttons = Vec::new();
-
-        for &value in &preset_values {
-            let button = Button::builder()
-                .label(&value.to_string())
+        if show_monitor_selector {
+            let selector_row = Box::builder()
+                .orientation(Orientation::Horizontal)
+                .spacing(8)
                 .build();
-            preset_box.append(&button);
-            preset_buttons.push(button);
+            let label = Label::builder().label("Monitor:").halign(gtk4::Align::Start).build();
+            selector_row.append(&label);
+            selector_row.append(&monitor_selector);
+            container.append(&selector_row);
         }
 
-        // Create VCP controls
-        let mut vcp_controls = VCPControlsContainer::new();
-        vcp_controls.add_sections(&[0x12, 0x14, 0x60, 0x62]); // Contrast, Color Temp, Input Source, Volume
-
-        // Add all widgets to container
-        container.append(&monitor_selector_box);
+        // Brightness slider
+        let brightness_slider = BrightnessSlider::new();
         container.append(brightness_slider.widget());
-        container.append(&preset_box);
+
+        // Preset buttons
+        let mut preset_buttons = Vec::new();
+        if enable_presets {
+            let preset_box = Box::builder()
+                .orientation(Orientation::Horizontal)
+                .spacing(6)
+                .homogeneous(true)
+                .build();
+
+            for &value in &preset_values {
+                let button = Button::builder()
+                    .label(&value.to_string())
+                    .css_classes(["preset-button"])
+                    .build();
+                preset_box.append(&button);
+                preset_buttons.push(button);
+            }
+            container.append(&preset_box);
+        }
+
+        // Separator
         container.append(&gtk4::Separator::new(Orientation::Horizontal));
+
+        // VCP controls
+        let mut vcp_controls = VCPControlsContainer::new();
+        vcp_controls.add_sections(&[0x12, 0x14, 0x60, 0x62]);
         container.append(vcp_controls.widget());
 
         popover.set_child(Some(&container));
@@ -130,78 +127,79 @@ impl BrightnessPopup {
         };
 
         popup.setup_connections().await;
-
         popup
     }
 
     /// Setup signal connections.
     async fn setup_connections(&self) {
-        // Connect brightness slider changes
         let ddc_manager = self.ddc_manager.clone();
         let current_monitor_id = self.current_monitor_id.clone();
-        let auto_hide_timer = self.auto_hide_timer.clone();
-        let auto_hide_delay_ms = self.auto_hide_delay_ms;
 
-        // Clone the slider to get mutable access for set_on_change
+        // Slider changes
+        let ddc_mgr = ddc_manager.clone();
+        let mon_id = current_monitor_id.clone();
         let mut brightness_slider = self.brightness_slider.clone();
         brightness_slider.set_on_change(move |value| {
-            let ddc_manager = ddc_manager.clone();
-            let current_monitor_id = current_monitor_id.clone();
-            let auto_hide_timer = auto_hide_timer.clone();
+            let ddc_manager = ddc_mgr.clone();
+            let current_monitor_id = mon_id.clone();
 
             glib::spawn_future_local(async move {
-                let monitor_id = {
-                    let id = current_monitor_id.lock().await;
-                    id.clone()
-                };
-
-                if let Some(id) = monitor_id {
-                    if let Err(e) = ddc_manager.set_brightness(&id, value).await {
-                        tracing::error!("Failed to set brightness: {}", e);
-                    }
-                }
-            });
-
-            // Reset auto-hide timer
-            Self::reset_auto_hide_timer(auto_hide_timer.clone(), auto_hide_delay_ms);
-        });
-
-        // Connect preset buttons
-        let ddc_manager = self.ddc_manager.clone();
-        let current_monitor_id = self.current_monitor_id.clone();
-        let auto_hide_timer = self.auto_hide_timer.clone();
-        let auto_hide_delay_ms = self.auto_hide_delay_ms;
-
-        for (i, button) in self.preset_buttons.iter().enumerate() {
-            let value = [20, 40, 60, 80, 100][i];
-            let ddc_manager = ddc_manager.clone();
-            let current_monitor_id = current_monitor_id.clone();
-            let auto_hide_timer = auto_hide_timer.clone();
-
-            button.connect_clicked(move |_| {
-                let ddc_manager = ddc_manager.clone();
-                let current_monitor_id = current_monitor_id.clone();
-                let auto_hide_timer = auto_hide_timer.clone();
-                let value = value;
-
-                glib::spawn_future_local(async move {
-                    let monitor_id = {
-                        let id = current_monitor_id.lock().await;
-                        id.clone()
-                    };
-
-                    if let Some(id) = monitor_id {
+                let monitor_id = current_monitor_id.lock().await.clone();
+                match monitor_id {
+                    Some(id) => {
                         if let Err(e) = ddc_manager.set_brightness(&id, value).await {
                             tracing::error!("Failed to set brightness: {}", e);
                         }
                     }
-                });
+                    None => {
+                        // All Monitors mode: set brightness on every monitor
+                        let monitors = ddc_manager.get_monitors().await;
+                        for m in &monitors {
+                            if let Err(e) = ddc_manager.set_brightness(&m.unique_id(), value).await {
+                                tracing::warn!("Failed to set brightness on {}: {}", m.display_name(), e);
+                            }
+                        }
+                    }
+                }
+            });
+        });
 
-                Self::reset_auto_hide_timer(auto_hide_timer.clone(), auto_hide_delay_ms);
+        // Preset buttons
+        for (i, button) in self.preset_buttons.iter().enumerate() {
+            let config = self.config_manager.lock().await;
+            let preset_values = config.config().ui.preset_values.clone();
+            drop(config);
+            let value = preset_values.get(i).copied().unwrap_or((i as u16 + 1) * 20);
+            let ddc_manager = ddc_manager.clone();
+            let current_monitor_id = current_monitor_id.clone();
+
+            button.connect_clicked(move |_| {
+                let ddc_manager = ddc_manager.clone();
+                let current_monitor_id = current_monitor_id.clone();
+                let value = value;
+
+                glib::spawn_future_local(async move {
+                    let monitor_id = current_monitor_id.lock().await.clone();
+                    match monitor_id {
+                        Some(id) => {
+                            if let Err(e) = ddc_manager.set_brightness(&id, value).await {
+                                tracing::error!("Failed to set brightness: {}", e);
+                            }
+                        }
+                        None => {
+                            let monitors = ddc_manager.get_monitors().await;
+                            for m in &monitors {
+                                if let Err(e) = ddc_manager.set_brightness(&m.unique_id(), value).await {
+                                    tracing::warn!("Failed to set brightness on {}: {}", m.display_name(), e);
+                                }
+                            }
+                        }
+                    }
+                });
             });
         }
 
-        // Connect monitor selector changes
+        // Monitor selector
         let ddc_manager = self.ddc_manager.clone();
         let current_monitor_id = self.current_monitor_id.clone();
         let brightness_slider = self.brightness_slider.clone();
@@ -219,7 +217,6 @@ impl BrightnessPopup {
                     } else {
                         *current_monitor_id.lock().await = Some(id.to_string());
 
-                        // Load current brightness for this monitor
                         if let Ok(brightness) = ddc_manager.get_brightness(&id).await {
                             brightness_slider.set_value(brightness).await;
                         }
@@ -228,49 +225,16 @@ impl BrightnessPopup {
             });
         });
 
-        // Connect popover closed signal to clear timer
+        // Popover closed signal
         let auto_hide_timer = self.auto_hide_timer.clone();
         self.popover.connect_closed(move |_| {
-            let timer_clone = auto_hide_timer.clone();
+            let timer = auto_hide_timer.clone();
             glib::spawn_future_local(async move {
-                let mut timer = timer_clone.lock().await;
-                if let Some(source_id) = timer.take() {
+                let mut t = timer.lock().await;
+                if let Some(source_id) = t.take() {
                     source_id.remove();
                 }
             });
-        });
-    }
-
-    /// Reset the auto-hide timer.
-    fn reset_auto_hide_timer(
-        timer: Arc<Mutex<Option<glib::SourceId>>>,
-        delay_ms: u32,
-    ) {
-        let timer_clone = timer.clone();
-        glib::spawn_future_local(async move {
-            let mut timer_guard = timer.lock().await;
-
-            // Remove existing timer
-            if let Some(source_id) = timer_guard.take() {
-                source_id.remove();
-            }
-
-            // Don't set new timer if delay is 0 (disabled)
-            if delay_ms == 0 {
-                return;
-            }
-
-            // Set new timer
-            let source_id = glib::timeout_add_local_once(
-                std::time::Duration::from_millis(delay_ms as u64),
-                move || {
-                    // TODO: Hide the popup
-                    let mut timer = timer_clone.blocking_lock();
-                    *timer = None;
-                },
-            );
-
-            *timer_guard = Some(source_id);
         });
     }
 
@@ -278,40 +242,58 @@ impl BrightnessPopup {
     pub async fn refresh_monitors(&self) {
         let monitors = self.ddc_manager.get_monitors().await;
 
-        // Clear all items and re-add "All Monitors"
         self.monitor_selector.remove_all();
         self.monitor_selector.append(Some("all"), "All Monitors");
 
-        // Add monitors
         for monitor in &monitors {
             self.monitor_selector
                 .append(Some(&monitor.unique_id()), &monitor.display_name());
         }
 
-        // Select first monitor if available
         if !monitors.is_empty() {
-            let first_monitor = &monitors[0];
-            self.monitor_selector.set_active_id(Some(&first_monitor.unique_id()));
-            *self.current_monitor_id.lock().await = Some(first_monitor.unique_id());
+            let first = &monitors[0];
+            self.monitor_selector.set_active_id(Some(&first.unique_id()));
+            *self.current_monitor_id.lock().await = Some(first.unique_id());
 
-            // Load current brightness
-            if let Ok(brightness) = self.ddc_manager.get_brightness(&first_monitor.unique_id()).await {
+            if let Ok(brightness) = self.ddc_manager.get_brightness(&first.unique_id()).await {
                 self.brightness_slider.set_value(brightness).await;
             }
+        } else {
+            self.monitor_selector.set_active_id(Some("all"));
+            *self.current_monitor_id.lock().await = None;
         }
     }
 
     /// Show the popup.
     pub fn popup(&self) {
-        self.popover.popup();
-
-        // Start auto-hide timer
-        let auto_hide_timer = self.auto_hide_timer.clone();
-        let auto_hide_delay_ms = self.auto_hide_delay_ms;
+        // Refresh monitors each time the popup opens
+        let ddc_manager = self.ddc_manager.clone();
+        let current_monitor_id = self.current_monitor_id.clone();
+        let monitor_selector = self.monitor_selector.clone();
+        let brightness_slider = self.brightness_slider.clone();
 
         glib::spawn_future_local(async move {
-            Self::reset_auto_hide_timer(auto_hide_timer, auto_hide_delay_ms);
+            let monitors = ddc_manager.get_monitors().await;
+
+            monitor_selector.remove_all();
+            monitor_selector.append(Some("all"), "All Monitors");
+
+            for monitor in &monitors {
+                monitor_selector.append(Some(&monitor.unique_id()), &monitor.display_name());
+            }
+
+            if !monitors.is_empty() {
+                let first = &monitors[0];
+                monitor_selector.set_active_id(Some(&first.unique_id()));
+                *current_monitor_id.lock().await = Some(first.unique_id());
+
+                if let Ok(brightness) = ddc_manager.get_brightness(&first.unique_id()).await {
+                    brightness_slider.set_value(brightness).await;
+                }
+            }
         });
+
+        self.popover.popup();
     }
 
     /// Hide the popup.
