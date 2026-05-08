@@ -279,13 +279,100 @@ impl DDCManager {
     }
 
     /// Get the brightness of a monitor.
+    /// For internal displays, reads from /sys/class/backlight/.
+    /// For external monitors, uses DDC/CI VCP code 0x10.
     pub async fn get_brightness(&self, monitor_id: &str) -> DDCResult<u16> {
+        let monitor = self.get_monitor_by_id(monitor_id).await?;
+
+        if monitor.monitor_type == crate::ddc::monitor::MonitorType::Internal {
+            return self._get_backlight_brightness(&monitor).await;
+        }
+
         self.get_vcp(monitor_id, 0x10).await
     }
 
     /// Set the brightness of a monitor.
+    /// For internal displays, writes to /sys/class/backlight/.
+    /// For external monitors, uses DDC/CI VCP code 0x10.
     pub async fn set_brightness(&self, monitor_id: &str, value: u16) -> DDCResult<()> {
+        let monitor = self.get_monitor_by_id(monitor_id).await?;
+
+        if monitor.monitor_type == crate::ddc::monitor::MonitorType::Internal {
+            return self._set_backlight_brightness(&monitor, value).await;
+        }
+
         self.set_vcp(monitor_id, 0x10, value).await
+    }
+
+    /// Read brightness from kernel backlight sysfs.
+    async fn _get_backlight_brightness(&self, monitor: &Monitor) -> DDCResult<u16> {
+        let path = monitor.backlight_path.as_ref()
+            .ok_or_else(|| DDCError::Other("No backlight path".to_string()))?;
+
+        let max_brightness: u16 = tokio::task::spawn_blocking({
+            let path = path.clone();
+            move || {
+                std::fs::read_to_string(format!("{}/max_brightness", path))
+                    .ok()
+                    .and_then(|s| s.trim().parse().ok())
+                    .unwrap_or(100)
+            }
+        }).await.map_err(|e| DDCError::Other(e.to_string()))?;
+
+        let current: u16 = tokio::task::spawn_blocking({
+            let path = path.clone();
+            move || {
+                std::fs::read_to_string(format!("{}/brightness", path))
+                    .ok()
+                    .and_then(|s| s.trim().parse().ok())
+                    .unwrap_or(0)
+            }
+        }).await.map_err(|e| DDCError::Other(e.to_string()))?;
+
+        // Convert to 0-100 percentage
+        let pct = if max_brightness > 0 {
+            (current as u32 * 100 / max_brightness as u32) as u16
+        } else {
+            0
+        };
+
+        tracing::debug!("Backlight {} read: {}/{} = {}%", path, current, max_brightness, pct);
+        Ok(pct)
+    }
+
+    /// Write brightness to kernel backlight sysfs.
+    async fn _set_backlight_brightness(&self, monitor: &Monitor, value: u16) -> DDCResult<()> {
+        let path = monitor.backlight_path.as_ref()
+            .ok_or_else(|| DDCError::Other("No backlight path".to_string()))?;
+
+        let value = value.clamp(0, 100);
+
+        let result: std::io::Result<()> = tokio::task::spawn_blocking({
+            let path = path.clone();
+            move || {
+                let max_str = std::fs::read_to_string(format!("{}/max_brightness", path))?;
+                let max: u32 = max_str.trim().parse().map_err(|_| {
+                    std::io::Error::new(std::io::ErrorKind::InvalidData, "bad max_brightness")
+                })?;
+
+                let raw = (value as u32 * max / 100) as u32;
+                std::fs::write(format!("{}/brightness", path), raw.to_string())
+            }
+        }).await.map_err(|e| DDCError::Other(e.to_string()))?;
+
+        result.map_err(|e| {
+            if e.kind() == std::io::ErrorKind::PermissionDenied {
+                DDCError::PermissionDenied(format!(
+                    "Cannot write to {}/brightness. Try: sudo usermod -aG video $USER",
+                    path
+                ))
+            } else {
+                DDCError::Other(format!("Backlight write failed: {}", e))
+            }
+        })?;
+
+        tracing::debug!("Backlight {} set to {}%", path, value);
+        Ok(())
     }
 
     /// Get the contrast of a monitor.

@@ -7,10 +7,10 @@ use std::time::Duration;
 use tokio::time::timeout as tokio_timeout;
 
 /// Default timeout for command execution in seconds.
-pub const DEFAULT_TIMEOUT_SECS: f64 = 5.0;
+pub const DEFAULT_TIMEOUT_SECS: f64 = 0.5;
 
 /// Default maximum number of retry attempts.
-pub const DEFAULT_MAX_RETRIES: u32 = 3;
+pub const DEFAULT_MAX_RETRIES: u32 = 1;
 
 /// Default initial delay between retries in seconds.
 pub const DEFAULT_RETRY_DELAY_SECS: f64 = 0.1;
@@ -291,8 +291,9 @@ impl CommandExecutor {
 
     /// Detect monitors on the system.
     pub async fn detect_monitors(&mut self) -> DDCResult<CommandResult> {
-        tracing::info!("detect_monitors() - Starting ddcutil detect --brief command");
-        let args = &["--sleep-multiplier", "0.5", "detect", "--brief"];
+        tracing::info!("detect_monitors() - Starting ddcutil detect command");
+        // Use full output (not --brief) for model name, manufacturer, serial number
+        let args = &["--sleep-multiplier", "0.5", "detect"];
         let result = self.execute(args).await;
         tracing::info!("detect_monitors() - Command completed");
         result

@@ -45,10 +45,19 @@ impl MonitorCapabilities {
     }
 }
 
+/// Whether this is a DDC/CI external monitor or an internal backlight display.
+#[derive(Debug, Clone, PartialEq)]
+pub enum MonitorType {
+    /// External monitor controlled via DDC/CI over I2C
+    External,
+    /// Internal laptop display controlled via kernel backlight sysfs
+    Internal,
+}
+
 /// Represents a physical monitor connected to the system.
 #[derive(Debug, Clone)]
 pub struct Monitor {
-    /// I2C bus number for this monitor
+    /// I2C bus number for this monitor (external only)
     pub bus: i32,
     /// Monitor model name
     pub model: String,
@@ -64,10 +73,14 @@ pub struct Monitor {
     pub last_seen: DateTime<Utc>,
     /// Cached VCP values
     cached_values: std::collections::HashMap<u8, u16>,
+    /// Monitor type: external DDC/CI or internal backlight
+    pub monitor_type: MonitorType,
+    /// Sysfs backlight path (internal only, e.g. /sys/class/backlight/intel_backlight)
+    pub backlight_path: Option<String>,
 }
 
 impl Monitor {
-    /// Create a new Monitor.
+    /// Create a new external DDC/CI Monitor.
     pub fn new(bus: i32) -> Self {
         Self {
             bus,
@@ -78,12 +91,37 @@ impl Monitor {
             capabilities: MonitorCapabilities::default(),
             last_seen: Utc::now(),
             cached_values: std::collections::HashMap::new(),
+            monitor_type: MonitorType::External,
+            backlight_path: None,
+        }
+    }
+
+    /// Create a new internal backlight Monitor.
+    pub fn new_internal(name: &str, path: &str) -> Self {
+        Self {
+            bus: -1,
+            model: name.to_string(),
+            serial: String::new(),
+            manufacturer: "Internal".to_string(),
+            edid_data: String::new(),
+            capabilities: MonitorCapabilities {
+                supported_vcp_codes: HashSet::new(),
+                max_brightness: 100,
+                max_contrast: 100,
+                supports_input_source: false,
+                supports_power_control: false,
+                supports_audio: false,
+            },
+            last_seen: Utc::now(),
+            cached_values: std::collections::HashMap::new(),
+            monitor_type: MonitorType::Internal,
+            backlight_path: Some(path.to_string()),
         }
     }
 
     /// Validate monitor data.
     pub fn validate(&self) -> DDCResult<()> {
-        if self.bus < 0 {
+        if self.monitor_type == MonitorType::External && self.bus < 0 {
             return Err(DDCError::Other(format!("Invalid bus number: {}", self.bus)));
         }
         Ok(())
@@ -91,18 +129,33 @@ impl Monitor {
 
     /// Get a human-readable display name for this monitor.
     pub fn display_name(&self) -> String {
-        if !self.serial.is_empty() && self.serial != "Unknown" {
-            return format!("{} ({})", self.model, self.serial);
+        if self.monitor_type == MonitorType::Internal {
+            return format!("{} (Internal)", self.model);
         }
-        self.model.clone()
+        if !self.manufacturer.is_empty() && self.model != "Unknown Monitor" {
+            if !self.serial.is_empty() && self.serial != "Unknown" {
+                return format!("{} {} ({})", self.manufacturer, self.model, self.serial);
+            }
+            return format!("{} {}", self.manufacturer, self.model);
+        }
+        if self.model != "Unknown Monitor" {
+            if !self.serial.is_empty() && self.serial != "Unknown" {
+                return format!("{} ({})", self.model, self.serial);
+            }
+            return self.model.clone();
+        }
+        // Worst case: bus number
+        format!("Monitor (bus {})", self.bus)
     }
 
     /// Get a unique identifier for this monitor.
     pub fn unique_id(&self) -> String {
+        if self.monitor_type == MonitorType::Internal {
+            return format!("internal_{}", self.model);
+        }
         if !self.serial.is_empty() && self.serial != "Unknown" {
             return self.serial.clone();
         }
-        // Fallback to model + bus if serial is not available
         format!("{}_bus{}", self.model, self.bus)
     }
 
@@ -135,6 +188,11 @@ impl Monitor {
             "manufacturer": self.manufacturer,
             "display_name": self.display_name(),
             "unique_id": self.unique_id(),
+            "monitor_type": match self.monitor_type {
+                MonitorType::External => "external",
+                MonitorType::Internal => "internal",
+            },
+            "backlight_path": self.backlight_path,
             "last_seen": self.last_seen.to_rfc3339(),
             "capabilities": {
                 "supported_vcp_codes": self.capabilities.supported_vcp_codes.iter().copied().collect::<Vec<_>>(),
@@ -159,20 +217,26 @@ impl MonitorDetector {
         Self { executor }
     }
 
-    /// Detect all available monitors.
+    /// Detect all available monitors (both external DDC/CI and internal backlight).
     pub async fn detect_monitors(&self) -> DDCResult<Vec<Monitor>> {
+        let mut monitors = Vec::new();
+
+        // Detect internal backlight displays
+        self._detect_internal_backlights(&mut monitors);
+
+        // Detect external DDC/CI monitors
         tracing::info!("MonitorDetector::detect_monitors() - Acquiring executor lock");
         let mut executor = self.executor.lock().await;
         tracing::info!("MonitorDetector::detect_monitors() - Calling executor.detect_monitors()");
+        // Use non-brief output for full monitor info
         let result = executor.detect_monitors().await?;
-        
-        // Release the lock before parsing to avoid deadlock
+
         drop(executor);
         tracing::info!("MonitorDetector::detect_monitors() - Released executor lock");
 
         tracing::info!("MonitorDetector::detect_monitors() - Command result: success={}, stdout_len={}",
             result.success, result.stdout.len());
-        
+
         if !result.success {
             return Err(DDCError::CommandExecution(crate::ddc::error::CommandExecutionError {
                 command: result.command,
@@ -183,17 +247,67 @@ impl MonitorDetector {
         }
 
         tracing::info!("MonitorDetector::detect_monitors() - Parsing output");
-        self._parse_detect_output(&result.stdout).await
+        let mut external = self._parse_detect_output(&result.stdout).await?;
+        monitors.append(&mut external);
+
+        Ok(monitors)
     }
 
-    /// Parse the output from `ddcutil detect --brief`.
+    /// Detect internal backlight displays via /sys/class/backlight/.
+    fn _detect_internal_backlights(&self, monitors: &mut Vec<Monitor>) {
+        let backlight_dir = std::path::Path::new("/sys/class/backlight");
+        if !backlight_dir.exists() {
+            tracing::info!("No /sys/class/backlight directory — no internal displays");
+            return;
+        }
+
+        let entries = match std::fs::read_dir(backlight_dir) {
+            Ok(e) => e,
+            Err(err) => {
+                tracing::warn!("Cannot read /sys/class/backlight: {}", err);
+                return;
+            }
+        };
+
+        for entry in entries.flatten() {
+            let name = entry.file_name().to_string_lossy().to_string();
+            let path = entry.path().to_string_lossy().to_string();
+
+            // Verify we can read brightness
+            let brightness_file = format!("{}/brightness", path);
+            let max_brightness_file = format!("{}/max_brightness", path);
+
+            if !std::path::Path::new(&brightness_file).exists() {
+                continue;
+            }
+
+            let max_brightness: u16 = std::fs::read_to_string(&max_brightness_file)
+                .ok()
+                .and_then(|s| s.trim().parse().ok())
+                .unwrap_or(100);
+
+            tracing::info!("Found internal backlight: {} (max={})", name, max_brightness);
+
+            let mut monitor = Monitor::new_internal(&name, &path);
+            monitor.capabilities.max_brightness = max_brightness;
+            monitors.push(monitor);
+        }
+    }
+
+    /// Parse the output from `ddcutil detect` (full output, not --brief).
     async fn _parse_detect_output(&self, output: &str) -> DDCResult<Vec<Monitor>> {
         tracing::info!("_parse_detect_output() - Starting to parse {} lines", output.lines().count());
         let mut monitors = Vec::new();
+
+        // Regex patterns for full ddcutil detect output (no --brief).
+        // Lines are already split by \n so no trailing \n in each line.
         let bus_re = Regex::new(r"I2C bus:\s*/dev/i2c-(\d+)").unwrap();
-        let model_re = Regex::new(r"Model:\s*(.+?)\s*\n").unwrap();
-        let serial_re = Regex::new(r"Serial number:\s*(.+?)\s*\n").unwrap();
-        let manufacturer_re = Regex::new(r"Manufacturing ID:\s*(.+?)\s*\n").unwrap();
+        // Full output: "Model:             ThinkVision T24i-20"
+        let model_re = Regex::new(r"Model:\s*(.+)").unwrap();
+        let serial_re = Regex::new(r"Serial number:\s*(.+)").unwrap();
+        let mfg_re = Regex::new(r"Mfg id:\s*(.+)").unwrap();
+        // Brief output fallback: "Monitor:           LEN T24i-20"
+        let monitor_brief_re = Regex::new(r"Monitor:\s*(.+)").unwrap();
 
         let lines: Vec<&str> = output.lines().collect();
         let mut i = 0;
@@ -207,16 +321,48 @@ impl MonitorDetector {
                 tracing::info!("_parse_detect_output() - Found monitor on bus {}", bus);
                 let mut monitor = Monitor::new(bus);
 
-                // Look for monitor info in following lines
+                // Look for monitor info in following lines (up to 20 lines ahead)
                 for j in (i + 1)..std::cmp::min(i + 20, lines.len()) {
-                    if let Some(caps) = model_re.captures(lines[j]) {
-                        monitor.model = caps.get(1).unwrap().as_str().trim().to_string();
+                    let subj = lines[j];
+
+                    // Stop if we hit the next display entry
+                    if subj.starts_with("Display ") {
+                        break;
                     }
-                    if let Some(caps) = serial_re.captures(lines[j]) {
-                        monitor.serial = caps.get(1).unwrap().as_str().trim().to_string();
+
+                    // Try full format fields first
+                    if let Some(caps) = model_re.captures(subj) {
+                        let val = caps.get(1).unwrap().as_str().trim();
+                        if !val.is_empty() {
+                            monitor.model = val.to_string();
+                        }
                     }
-                    if let Some(caps) = manufacturer_re.captures(lines[j]) {
-                        monitor.manufacturer = caps.get(1).unwrap().as_str().trim().to_string();
+                    if let Some(caps) = serial_re.captures(subj) {
+                        let val = caps.get(1).unwrap().as_str().trim();
+                        if !val.is_empty() {
+                            monitor.serial = val.to_string();
+                        }
+                    }
+                    if let Some(caps) = mfg_re.captures(subj) {
+                        let val = caps.get(1).unwrap().as_str().trim();
+                        if !val.is_empty() {
+                            monitor.manufacturer = val.to_string();
+                        }
+                    }
+                    // Brief format fallback: "Monitor: LEN T24i-20"
+                    if monitor.model == "Unknown Monitor" {
+                        if let Some(caps) = monitor_brief_re.captures(subj) {
+                            let val = caps.get(1).unwrap().as_str().trim();
+                            if !val.is_empty() {
+                                // Brief format is "MFG Model" — split on first space
+                                if let Some(space_pos) = val.find(' ') {
+                                    monitor.manufacturer = val[..space_pos].to_string();
+                                    monitor.model = val[space_pos + 1..].trim().to_string();
+                                } else {
+                                    monitor.model = val.to_string();
+                                }
+                            }
+                        }
                     }
                 }
 
@@ -314,14 +460,32 @@ mod tests {
         let monitor = Monitor::new(1);
         assert_eq!(monitor.bus, 1);
         assert_eq!(monitor.model, "Unknown Monitor");
+        assert_eq!(monitor.monitor_type, MonitorType::External);
+    }
+
+    #[test]
+    fn test_monitor_new_internal() {
+        let monitor = Monitor::new_internal("intel_backlight", "/sys/class/backlight/intel_backlight");
+        assert_eq!(monitor.model, "intel_backlight");
+        assert_eq!(monitor.monitor_type, MonitorType::Internal);
+        assert_eq!(monitor.backlight_path, Some("/sys/class/backlight/intel_backlight".to_string()));
     }
 
     #[test]
     fn test_monitor_display_name() {
         let mut monitor = Monitor::new(1);
-        monitor.model = "Test Monitor".to_string();
+        monitor.model = "T24i-20".to_string();
+        monitor.manufacturer = "LEN".to_string();
+        assert_eq!(monitor.display_name(), "LEN T24i-20");
+
         monitor.serial = "ABC123".to_string();
-        assert_eq!(monitor.display_name(), "Test Monitor (ABC123)");
+        assert_eq!(monitor.display_name(), "LEN T24i-20 (ABC123)");
+    }
+
+    #[test]
+    fn test_monitor_display_name_internal() {
+        let monitor = Monitor::new_internal("intel_backlight", "/sys/class/backlight/intel_backlight");
+        assert_eq!(monitor.display_name(), "intel_backlight (Internal)");
     }
 
     #[test]
@@ -333,6 +497,12 @@ mod tests {
         monitor.serial = String::new();
         monitor.model = "Test Monitor".to_string();
         assert_eq!(monitor.unique_id(), "Test Monitor_bus1");
+    }
+
+    #[test]
+    fn test_monitor_unique_id_internal() {
+        let monitor = Monitor::new_internal("intel_backlight", "/sys/class/backlight/intel_backlight");
+        assert_eq!(monitor.unique_id(), "internal_intel_backlight");
     }
 
     #[test]
@@ -354,5 +524,25 @@ mod tests {
 
         capabilities.supported_vcp_codes.insert(0x10);
         assert!(capabilities.supports_vcp(0x10));
+    }
+
+    #[test]
+    fn test_parse_detect_output_regex() {
+        // Verify the regex works on lines without trailing \n
+        let model_re = Regex::new(r"Model:\s*(.+)").unwrap();
+        let line = "      Model:             ThinkVision T24i-20";
+        let caps = model_re.captures(line).unwrap();
+        assert_eq!(caps.get(1).unwrap().as_str().trim(), "ThinkVision T24i-20");
+
+        let mfg_re = Regex::new(r"Mfg id:\s*(.+)").unwrap();
+        let line = "      Mfg id:            LEN";
+        let caps = mfg_re.captures(line).unwrap();
+        assert_eq!(caps.get(1).unwrap().as_str().trim(), "LEN");
+
+        // Brief format
+        let brief_re = Regex::new(r"Monitor:\s*(.+)").unwrap();
+        let line = "   Monitor:             LEN T24i-20";
+        let caps = brief_re.captures(line).unwrap();
+        assert_eq!(caps.get(1).unwrap().as_str().trim(), "LEN T24i-20");
     }
 }

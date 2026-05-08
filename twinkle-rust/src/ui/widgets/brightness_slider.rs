@@ -1,5 +1,6 @@
-//! Brightness slider widget.
+//! Brightness slider widget with debounced change notifications.
 
+use gtk4::glib;
 use gtk4::prelude::*;
 use gtk4::{Adjustment, Box, Label, Orientation, Scale, SpinButton};
 use std::sync::Arc;
@@ -95,7 +96,11 @@ impl BrightnessSlider {
         *self.current_value.lock().await
     }
 
-    /// Set the callback for value changes.
+    /// Set the callback for value changes, debounced by 300ms.
+    ///
+    /// The callback is only called once the slider has stopped moving
+    /// for 300ms. This avoids sending dozens of DDC commands while
+    /// the user drags the slider.
     pub fn set_on_change<F>(&mut self, callback: F)
     where
         F: Fn(u16) + Clone + Send + Sync + 'static,
@@ -103,13 +108,34 @@ impl BrightnessSlider {
         let callback_clone = callback.clone();
         let current_value = self.current_value.clone();
 
+        // Track the pending timer source ID so we can cancel the previous one
+        let pending_source_id: Arc<std::sync::Mutex<Option<glib::SourceId>>> =
+            Arc::new(std::sync::Mutex::new(None));
+
         self.adjustment.connect_value_changed(move |adj| {
             let value = adj.value() as u16;
-            let mut current = current_value.blocking_lock();
-            *current = value;
-            drop(current);
 
-            callback_clone(value);
+            // Update tracked value immediately
+            {
+                let mut current = current_value.blocking_lock();
+                *current = value;
+            }
+
+            // Cancel any previous pending timer
+            if let Some(old_id) = pending_source_id.lock().ok().and_then(|mut id| id.take()) {
+                old_id.remove();
+            }
+
+            // Set a new 300ms debounce timer
+            let cb = callback_clone.clone();
+            let source_id = glib::timeout_add_local(std::time::Duration::from_millis(300), move || {
+                cb(value);
+                glib::ControlFlow::Break
+            });
+
+            if let Ok(mut id) = pending_source_id.lock() {
+                *id = Some(source_id);
+            }
         });
     }
 

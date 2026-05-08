@@ -13,5 +13,5 @@ pub mod vcp_codes;
 pub use command::{CommandExecutor, CommandResult};
 pub use ddc_manager::DDCManager;
 pub use error::{DDCError, DDCResult, is_permission_error, is_recoverable, is_timeout_error};
-pub use monitor::{Monitor, MonitorCapabilities, MonitorDetector};
+pub use monitor::{Monitor, MonitorCapabilities, MonitorDetector, MonitorType};
 pub use vcp_codes::{VCPCodeInfo, ValueType, get_common_vcp_codes, get_vcp_info};
