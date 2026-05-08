@@ -4,6 +4,7 @@ use gtk4::glib;
 use gtk4::prelude::*;
 use gtk4::{Adjustment, Box, Label, Orientation, Scale, SpinButton};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use tokio::sync::Mutex;
 
 /// Brightness slider widget.
@@ -19,6 +20,8 @@ pub struct BrightnessSlider {
     adjustment: Adjustment,
     /// Current brightness value
     current_value: Arc<Mutex<u16>>,
+    /// Whether the next value_changed is programmatic (should not trigger callback)
+    suppress_callback: Arc<AtomicBool>,
 }
 
 impl BrightnessSlider {
@@ -76,6 +79,7 @@ impl BrightnessSlider {
             spin_button,
             adjustment,
             current_value: Arc::new(Mutex::new(50)),
+            suppress_callback: Arc::new(AtomicBool::new(false)),
         }
     }
 
@@ -84,9 +88,11 @@ impl BrightnessSlider {
         &self.container
     }
 
-    /// Set the brightness value.
+    /// Set the brightness value programmatically.
+    /// Does NOT trigger the on_change callback.
     pub async fn set_value(&self, value: u16) {
         let value = value.clamp(0, 100);
+        self.suppress_callback.store(true, Ordering::SeqCst);
         self.adjustment.set_value(value as f64);
         *self.current_value.lock().await = value;
     }
@@ -100,19 +106,27 @@ impl BrightnessSlider {
     ///
     /// The callback is only called once the slider has stopped moving
     /// for 300ms. This avoids sending dozens of DDC commands while
-    /// the user drags the slider.
+    /// the user drags the slider. Programmatic set_value() calls
+    /// do NOT trigger the callback.
     pub fn set_on_change<F>(&mut self, callback: F)
     where
         F: Fn(u16) + Clone + Send + Sync + 'static,
     {
         let callback_clone = callback.clone();
         let current_value = self.current_value.clone();
+        let suppress = self.suppress_callback.clone();
 
-        // Track the pending timer source ID so we can cancel the previous one
-        let pending_source_id: Arc<std::sync::Mutex<Option<glib::SourceId>>> =
+        // Track the pending timer source ID as raw u32.
+        // We use raw g_source_remove() which does not panic on already-removed sources.
+        let pending_source_id: Arc<std::sync::Mutex<Option<u32>>> =
             Arc::new(std::sync::Mutex::new(None));
 
         self.adjustment.connect_value_changed(move |adj| {
+            // Skip if this was a programmatic set_value() call
+            if suppress.swap(false, Ordering::SeqCst) {
+                return;
+            }
+
             let value = adj.value() as u16;
 
             // Update tracked value immediately
@@ -121,20 +135,26 @@ impl BrightnessSlider {
                 *current = value;
             }
 
-            // Cancel any previous pending timer
+            // Cancel any previous pending timer.
+            // g_source_remove() returns FALSE if source already fired — that's fine, ignore it.
             if let Some(old_id) = pending_source_id.lock().ok().and_then(|mut id| id.take()) {
-                old_id.remove();
+                unsafe {
+                    gtk4::glib::ffi::g_source_remove(old_id);
+                }
             }
 
             // Set a new 300ms debounce timer
             let cb = callback_clone.clone();
-            let source_id = glib::timeout_add_local(std::time::Duration::from_millis(300), move || {
+            let new_id = glib::timeout_add_local(std::time::Duration::from_millis(300), move || {
                 cb(value);
                 glib::ControlFlow::Break
             });
 
+            // Store the raw source ID (u32)
+            // SourceId doesn't expose as_raw(), but we can get it via IntoGlib
+            let raw_id: u32 = unsafe { std::mem::transmute(new_id) };
             if let Ok(mut id) = pending_source_id.lock() {
-                *id = Some(source_id);
+                *id = Some(raw_id);
             }
         });
     }
