@@ -136,8 +136,17 @@ impl Default for BrightnessSlider {
 mod tests {
     use super::*;
 
+    /// Returns true if GTK initialized successfully (display available).
+    fn init_gtk() -> bool {
+        gtk4::init().is_ok()
+    }
+
     #[test]
     fn test_brightness_slider_new() {
+        if !init_gtk() {
+            eprintln!("skipping: no display available");
+            return;
+        }
         let slider = BrightnessSlider::new();
         assert_eq!(slider.container.orientation(), Orientation::Vertical);
     }

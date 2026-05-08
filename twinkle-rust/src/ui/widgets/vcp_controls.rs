@@ -201,20 +201,37 @@ impl Default for VCPControlsContainer {
 mod tests {
     use super::*;
 
+    /// Returns true if GTK initialized successfully (display available).
+    fn init_gtk() -> bool {
+        gtk4::init().is_ok()
+    }
+
     #[test]
     fn test_vcp_control_section_new() {
+        if !init_gtk() {
+            eprintln!("skipping: no display available");
+            return;
+        }
         let section = VCPControlSection::new(0x10);
         assert_eq!(section.vcp_code(), 0x10);
     }
 
     #[test]
     fn test_vcp_controls_container_new() {
+        if !init_gtk() {
+            eprintln!("skipping: no display available");
+            return;
+        }
         let container = VCPControlsContainer::new();
         assert_eq!(container.sections.len(), 0);
     }
 
     #[test]
     fn test_vcp_controls_container_add_section() {
+        if !init_gtk() {
+            eprintln!("skipping: no display available");
+            return;
+        }
         let mut container = VCPControlsContainer::new();
         container.add_section(0x10);
         assert_eq!(container.sections.len(), 1);

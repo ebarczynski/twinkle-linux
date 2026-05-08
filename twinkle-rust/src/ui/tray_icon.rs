@@ -3,7 +3,7 @@
 use crate::core::config::ConfigManager;
 use crate::ddc::DDCManager;
 use gtk4::prelude::*;
-use gtk4::{Application, gio, glib, PopoverMenu};
+use gtk4::{Application, gio, PopoverMenu};
 use std::sync::Arc;
 
 /// System tray icon.
@@ -98,42 +98,7 @@ impl TrayIcon {
     /// Show a notification.
     pub fn show_notification(&self, title: &str, message: &str) {
         // GTK4 doesn't have built-in notifications
-        // We'll use the application to show a dialog or log
+        // Use libnotify or a simple toast as a future enhancement
         tracing::info!("Notification: {} - {}", title, message);
     }
-}
-
-/// Create the application actions for the tray icon.
-pub fn setup_tray_actions(app: &Application) {
-    // Show brightness action
-    let show_brightness = gio::SimpleAction::new("show-brightness", None);
-    show_brightness.connect_activate(|_, _| {
-        tracing::info!("Show brightness popup");
-        // TODO: Show brightness popup
-    });
-    app.add_action(&show_brightness);
-
-    // Show settings action
-    let show_settings = gio::SimpleAction::new("show-settings", None);
-    show_settings.connect_activate(|_, _| {
-        tracing::info!("Show settings dialog");
-        // TODO: Show settings dialog
-    });
-    app.add_action(&show_settings);
-
-    // Show about action
-    let show_about = gio::SimpleAction::new("show-about", None);
-    show_about.connect_activate(|_, _| {
-        tracing::info!("Show about dialog");
-        // TODO: Show about dialog
-    });
-    app.add_action(&show_about);
-
-    // Quit action
-    let quit = gio::SimpleAction::new("quit", None);
-    let app_clone = app.clone();
-    quit.connect_activate(move |_, _value: Option<&glib::Variant>| {
-        app_clone.quit();
-    });
-    app.add_action(&quit);
 }
