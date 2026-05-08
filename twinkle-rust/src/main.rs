@@ -29,7 +29,7 @@ struct AppState {
 }
 
 /// Build the application UI.
-fn build_ui(app: &Application, state: AppState) {
+fn build_ui(app: &Application, state: AppState, rt_handle: tokio::runtime::Handle) {
     tracing::info!("build_ui: Starting UI construction");
 
     // Create the tray icon (system tray integration)
@@ -74,7 +74,13 @@ fn build_ui(app: &Application, state: AppState) {
     let window_clone = window.clone();
 
     // Spawn async initialization
+    // Pass the tokio handle into the future so it can enter the runtime context
+    let rt_for_future = rt_handle.clone();
     glib::spawn_future_local(async move {
+        // Enter the tokio runtime context so async tokio calls work
+        // from within this GLib-main-context future
+        let _rt_guard = rt_for_future.enter();
+        
         tracing::info!("Async initialization task started");
 
         // Create and set up the tray icon
@@ -146,7 +152,7 @@ fn build_ui(app: &Application, state: AppState) {
     });
 
     // Setup tray actions with references to popup and settings
-    setup_tray_actions(app, tray_icon, brightness_popup, state);
+    setup_tray_actions(app, tray_icon, brightness_popup, state, rt_handle);
 
     window.show();
     tracing::info!("build_ui: Window shown");
@@ -158,6 +164,7 @@ fn setup_tray_actions(
     tray_icon: Arc<std::sync::Mutex<Option<TrayIcon>>>,
     brightness_popup: Arc<std::sync::Mutex<Option<BrightnessPopup>>>,
     state: AppState,
+    rt_handle: tokio::runtime::Handle,
 ) {
     // Show brightness popup action
     let show_brightness = gtk4::gio::SimpleAction::new("show-brightness", None);
@@ -176,12 +183,15 @@ fn setup_tray_actions(
     let show_settings = gtk4::gio::SimpleAction::new("show-settings", None);
     let config_for_settings = state.config_manager.clone();
     let window_for_settings = app.clone();
+    let rt_for_settings = rt_handle.clone();
     show_settings.connect_activate(move |_, _| {
         tracing::info!("Show settings dialog");
         let config_mgr = config_for_settings.clone();
         let app_ref = window_for_settings.clone();
+        let rt = rt_for_settings.clone();
 
         glib::spawn_future_local(async move {
+            let _rt_guard = rt.enter();
             // Get or create a transient window for the dialog
             let windows = app_ref.windows();
             let parent = windows.first().cloned();
@@ -254,12 +264,13 @@ fn main() {
         .build();
 
     // Connect activate signal
+    let rt_handle_clone = rt_handle.clone();
     app.connect_activate(move |app| {
         tracing::info!("App activate callback started");
 
         // Create config manager and load existing config
         tracing::info!("Creating ConfigManager...");
-        let config_manager = rt_handle.block_on(async {
+        let config_manager = rt_handle_clone.block_on(async {
             let mut mgr = ConfigManager::new().expect("Failed to create config manager");
             if let Err(e) = mgr.load() {
                 tracing::warn!("Failed to load config, using defaults: {}", e);
@@ -271,7 +282,7 @@ fn main() {
         // Create DDC manager
         tracing::info!("Creating DDCManager...");
         let ddc_manager = Arc::new(
-            rt_handle.block_on(DDCManager::new())
+            rt_handle_clone.block_on(DDCManager::new())
                 .expect("Failed to create DDC manager"),
         );
         tracing::info!("DDCManager created successfully");
@@ -283,7 +294,7 @@ fn main() {
         };
 
         tracing::info!("Calling build_ui...");
-        build_ui(app, state);
+        build_ui(app, state, rt_handle_clone.clone());
         tracing::info!("build_ui completed");
     });
 
