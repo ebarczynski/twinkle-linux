@@ -63,6 +63,7 @@ impl Tray for TrayState {
         let tx_40 = self.tx.clone();
         let tx_60 = self.tx.clone();
         let tx_80 = self.tx.clone();
+        let tx_100 = self.tx.clone();
         let tx_settings = self.tx.clone();
         let tx_about = self.tx.clone();
         let tx_quit = self.tx.clone();
@@ -120,6 +121,15 @@ impl Tray for TrayState {
                 icon_name: "weather-clear-symbolic".into(),
                 activate: Box::new(move |_this: &mut Self| {
                     let _ = tx_80.send(TrayCommand::SetAllBrightness(80));
+                }),
+                ..Default::default()
+            }
+            .into(),
+            StandardItem {
+                label: "  100%  (Max)".into(),
+                icon_name: "weather-clear-symbolic".into(),
+                activate: Box::new(move |_this: &mut Self| {
+                    let _ = tx_100.send(TrayCommand::SetAllBrightness(100));
                 }),
                 ..Default::default()
             }
