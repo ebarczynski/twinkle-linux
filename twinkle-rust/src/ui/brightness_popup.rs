@@ -6,8 +6,7 @@ use crate::ddc::monitor::Monitor;
 use gtk4::glib;
 use gtk4::prelude::*;
 use gtk4::{
-    Adjustment, Box, Button,
-    GestureClick, Label, Orientation, Scale, Window,
+    Adjustment, Box, Button, Label, Orientation, Scale, Window,
 };
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU16, Ordering};
@@ -23,6 +22,55 @@ struct MonitorCard {
     suppress: Arc<AtomicBool>,
 }
 
+/// Connect a scale with simple debounce: send value only after 300ms of inactivity.
+fn connect_slider_debounced(
+    adjustment: &Adjustment,
+    value_label: Label,
+    suppress: Arc<AtomicBool>,
+    send_fn: impl Fn(u16) + Clone + Send + Sync + 'static,
+) {
+    let pending_value = Arc::new(AtomicU16::new(0));
+    let debounce_id: Arc<StdMutex<Option<u32>>> = Arc::new(StdMutex::new(None));
+    let send = send_fn.clone();
+    let deb = debounce_id.clone();
+    let pv = pending_value.clone();
+
+    adjustment.connect_value_changed(move |adj| {
+        // Skip if programmatically set
+        if suppress.swap(false, Ordering::SeqCst) {
+            return;
+        }
+        let value = adj.value() as u16;
+        value_label.set_label(&format!("{}%", value));
+        pv.store(value, Ordering::SeqCst);
+
+        // Cancel old debounce timer
+        if let Some(id) = deb.lock().ok().and_then(|mut id| id.take()) {
+            unsafe { gtk4::glib::ffi::g_source_remove(id); }
+        }
+
+        // Set new debounce timer (300ms)
+        let send = send.clone();
+        let deb2 = deb.clone();
+        let pv2 = pv.clone();
+        let new_id = glib::timeout_add_local(
+            std::time::Duration::from_millis(300),
+            move || {
+                let val = pv2.load(Ordering::SeqCst);
+                send(val);
+                if let Ok(mut id) = deb2.lock() {
+                    *id = None;
+                }
+                glib::ControlFlow::Break
+            },
+        );
+        let raw_id: u32 = unsafe { std::mem::transmute(new_id) };
+        if let Ok(mut id) = deb.lock() {
+            *id = Some(raw_id);
+        }
+    });
+}
+
 /// Brightness popup window.
 pub struct BrightnessPopup {
     window: Window,
@@ -32,97 +80,9 @@ pub struct BrightnessPopup {
     override_suppress: Arc<AtomicBool>,
     override_value_label: Label,
     override_row: Box,
-    all_monitors_active: Arc<AtomicBool>,
     ddc_manager: Arc<DDCManager>,
     config_manager: Arc<Mutex<ConfigManager>>,
     _css_provider: gtk4::CssProvider,
-}
-
-/// Connect a scale so that:
-/// - During drag: only the label updates (no DDC command)
-/// - On mouse release: sends the final value immediately
-/// - On scroll/keyboard: debounced 500ms
-fn connect_slider_send_on_release(
-    scale: &Scale,
-    adjustment: &Adjustment,
-    value_label: Label,
-    suppress: Arc<AtomicBool>,
-    send_fn: impl Fn(u16) + Clone + Send + Sync + 'static,
-) {
-    // Track whether the user is currently dragging
-    let dragging = Arc::new(AtomicBool::new(false));
-    // Track the pending value (for debounce fallback)
-    let pending_value = Arc::new(AtomicU16::new(0));
-    // Track debounce timer source ID
-    let debounce_id: Arc<StdMutex<Option<u32>>> = Arc::new(StdMutex::new(None));
-
-    // GestureClick detects press/release on the slider
-    let drag = dragging.clone();
-    let pval = pending_value.clone();
-    let send = send_fn.clone();
-    let _debounce_id = debounce_id.clone();
-
-    let gesture = GestureClick::new();
-    gesture.connect_pressed(move |_, _, _, _| {
-        drag.store(true, Ordering::SeqCst);
-    });
-    // On release: send the value immediately
-    let drag2 = dragging.clone();
-    let send2 = send.clone();
-    let deb2 = debounce_id.clone();
-    gesture.connect_released(move |_, _, _, _| {
-        drag2.store(false, Ordering::SeqCst);
-        // Cancel any pending debounce timer
-        if let Some(id) = deb2.lock().ok().and_then(|mut id| id.take()) {
-            unsafe { gtk4::glib::ffi::g_source_remove(id); }
-        }
-        // Send immediately
-        let val = pval.load(Ordering::SeqCst);
-        send2(val);
-    });
-    scale.add_controller(gesture);
-
-        // value_changed: update label + maybe debounce (for scroll/keyboard)
-        let send3 = send_fn;
-        let deb3 = debounce_id.clone();
-        let pending_value_ref = pending_value.clone();
-        let dragging_ref = dragging.clone();
-        adjustment.connect_value_changed(move |adj| {
-            if suppress.swap(false, Ordering::SeqCst) {
-                return;
-            }
-            let value = adj.value() as u16;
-            value_label.set_label(&format!("{}%", value));
-            pending_value_ref.store(value, Ordering::SeqCst);
-
-            // If dragging, don't send — wait for release
-            if dragging_ref.load(Ordering::SeqCst) {
-                return;
-            }
-
-            // Not dragging (scroll/keyboard): cancel old timer, set new debounce
-            if let Some(id) = deb3.lock().ok().and_then(|mut id| id.take()) {
-                unsafe { gtk4::glib::ffi::g_source_remove(id); }
-            }
-            let send = send3.clone();
-            let deb = deb3.clone();
-            let pv = pending_value_ref.clone();
-            let new_id = glib::timeout_add_local(
-                std::time::Duration::from_millis(500),
-                move || {
-                    let val = pv.load(Ordering::SeqCst);
-                    send(val);
-                    if let Ok(mut id) = deb.lock() {
-                        *id = None;
-                    }
-                    glib::ControlFlow::Break
-                },
-            );
-            let raw_id: u32 = unsafe { std::mem::transmute(new_id) };
-            if let Ok(mut id) = deb3.lock() {
-                *id = Some(raw_id);
-            }
-        });
 }
 
 impl BrightnessPopup {
@@ -134,7 +94,7 @@ impl BrightnessPopup {
         // Load CSS
         let css_provider = gtk4::CssProvider::new();
         css_provider.load_from_data(include_str!("style.css"));
-        gtk4::StyleContext::add_provider_for_display(
+        gtk4::style_context_add_provider_for_display(
             &gtk4::gdk::Display::default().unwrap_or_else(|| panic!("No display")),
             &css_provider,
             gtk4::STYLE_PROVIDER_PRIORITY_APPLICATION,
@@ -160,10 +120,10 @@ impl BrightnessPopup {
             .build();
         main_box.append(&cards_container);
 
-        // "All Monitors" override row (hidden by default)
+        // "All Monitors" slider — always visible
         let override_row = Box::builder()
             .orientation(Orientation::Vertical)
-            .css_classes(["override-row"])
+            .css_classes(["all-monitors-row"])
             .build();
 
         let override_header = Box::builder()
@@ -176,6 +136,7 @@ impl BrightnessPopup {
             .label("All Monitors")
             .css_classes(["monitor-name"])
             .hexpand(true)
+            .xalign(0.0)
             .build();
         let override_value_label = Label::builder()
             .label("100%")
@@ -206,28 +167,25 @@ impl BrightnessPopup {
         override_row.append(&override_slider_row);
 
         main_box.append(&override_row);
-        override_row.set_visible(false);
 
-        // Bottom toolbar
+        // Separator
+        let sep = Box::builder()
+            .css_classes(["separator"])
+            .build();
+        main_box.append(&sep);
+
+        // Bottom toolbar — settings only
         let bottom = Box::builder()
             .orientation(Orientation::Horizontal)
             .css_classes(["bottom-toolbar"])
-            .halign(gtk4::Align::Fill)
-            .build();
-
-        let all_btn = Button::builder()
-            .label("All Monitors")
-            .css_classes(["all-monitors-button"])
-            .halign(gtk4::Align::Start)
+            .halign(gtk4::Align::End)
             .build();
 
         let settings_btn = Button::builder()
             .label("\u{2699}")
             .css_classes(["icon-button"])
-            .halign(gtk4::Align::End)
             .build();
 
-        bottom.append(&all_btn);
         bottom.append(&settings_btn);
         main_box.append(&bottom);
 
@@ -242,7 +200,6 @@ impl BrightnessPopup {
 
         window.set_child(Some(&main_box));
 
-        let all_monitors_active = Arc::new(AtomicBool::new(false));
         let override_suppress = Arc::new(AtomicBool::new(false));
 
         let popup = Self {
@@ -253,48 +210,26 @@ impl BrightnessPopup {
             override_suppress,
             override_value_label,
             override_row,
-            all_monitors_active,
             ddc_manager,
             config_manager,
             _css_provider: css_provider,
         };
 
-        popup.setup_connections(all_btn, settings_btn, override_scale);
+        popup.setup_connections(settings_btn, override_scale);
         popup
     }
 
-    fn setup_connections(&self, all_btn: Button, settings_btn: Button, override_scale: Scale) {
-        // "All Monitors" toggle
-        let all_monitors_active = self.all_monitors_active.clone();
-        let override_row = self.override_row.clone();
-
-        all_btn.connect_clicked(move |btn| {
-            let active = all_monitors_active.load(Ordering::SeqCst);
-            let new_active = !active;
-            all_monitors_active.store(new_active, Ordering::SeqCst);
-            override_row.set_visible(new_active);
-            if new_active {
-                btn.add_css_class("active");
-            } else {
-                btn.remove_css_class("active");
-            }
-        });
-
-        // Override slider: send on release only
+    fn setup_connections(&self, settings_btn: Button, _override_scale: Scale) {
+        // Override slider: sends to all monitors after 300ms debounce
         let ddc_manager = self.ddc_manager.clone();
         let override_suppress = self.override_suppress.clone();
         let override_value_label = self.override_value_label.clone();
-        let all_active = self.all_monitors_active.clone();
 
-        connect_slider_send_on_release(
-            &override_scale,
+        connect_slider_debounced(
             &self.override_adjustment,
             override_value_label,
             override_suppress,
             move |value| {
-                if !all_active.load(Ordering::SeqCst) {
-                    return;
-                }
                 let ddc_manager = ddc_manager.clone();
                 glib::spawn_future_local(async move {
                     let monitors = ddc_manager.get_monitors().await;
@@ -317,7 +252,7 @@ impl BrightnessPopup {
     }
 
     /// Build a single monitor card widget.
-    fn build_card(monitor: &Monitor, brightness: u16) -> (Box, MonitorCard, Scale) {
+    fn build_card(monitor: &Monitor, brightness: u16) -> (Box, MonitorCard, Adjustment) {
         let card = Box::builder()
             .orientation(Orientation::Vertical)
             .css_classes(["monitor-card"])
@@ -373,6 +308,7 @@ impl BrightnessPopup {
         card.append(&slider_row);
 
         let suppress = Arc::new(AtomicBool::new(false));
+        let adjustment_clone = adjustment.clone();
         let monitor_card = MonitorCard {
             monitor_id: monitor.unique_id(),
             name_label,
@@ -381,18 +317,16 @@ impl BrightnessPopup {
             suppress,
         };
 
-        (card, monitor_card, scale)
+        (card, monitor_card, adjustment_clone)
     }
 
     /// Show the popup.
     pub fn popup(&self) {
         let ddc_manager = self.ddc_manager.clone();
         let cards_container = self.cards_container.clone();
-        let all_monitors_active = self.all_monitors_active.clone();
         let override_adjustment = self.override_adjustment.clone();
         let override_suppress = self.override_suppress.clone();
         let override_value_label = self.override_value_label.clone();
-        let override_row = self.override_row.clone();
 
         glib::spawn_future_local(async move {
             let monitors = ddc_manager.get_monitors().await;
@@ -407,36 +341,33 @@ impl BrightnessPopup {
                     .await
                     .unwrap_or(50);
 
-                let (card_widget, card, scale) = Self::build_card(monitor, brightness);
+                let (card_widget, _card, adjustment) = Self::build_card(monitor, brightness);
 
-                // Connect slider: send on release
+                // Connect slider: debounce 300ms, single monitor
                 let ddc_mgr = ddc_manager.clone();
-                let monitor_id = card.monitor_id.clone();
-                let value_label = card.value_label.clone();
-                let suppress = card.suppress.clone();
-                let all_active = all_monitors_active.clone();
+                let monitor_id = monitor.unique_id();
+                let suppress = Arc::new(AtomicBool::new(false));
+                let value_label = Label::builder()
+                    .label(&format!("{}%", brightness))
+                    .css_classes(["brightness-value"])
+                    .build();
 
-                connect_slider_send_on_release(
-                    &scale,
-                    &card.adjustment,
-                    value_label,
+                // Reuse the value_label from the card — get it from the card widget
+                // We need to find the brightness-value label in the card
+                // Simpler: just create a hidden label to track and update the visible one
+                let visible_label = find_brightness_label(&card_widget);
+                let vl = visible_label.unwrap_or_else(|| value_label);
+
+                connect_slider_debounced(
+                    &adjustment,
+                    vl,
                     suppress,
                     move |value| {
                         let ddc_manager = ddc_mgr.clone();
                         let monitor_id = monitor_id.clone();
-                        let all_active = all_active.clone();
                         glib::spawn_future_local(async move {
-                            if all_active.load(Ordering::SeqCst) {
-                                let monitors = ddc_manager.get_monitors().await;
-                                for m in &monitors {
-                                    if let Err(e) = ddc_manager.set_brightness(&m.unique_id(), value).await {
-                                        tracing::warn!("Failed on {}: {}", m.display_name(), e);
-                                    }
-                                }
-                            } else {
-                                if let Err(e) = ddc_manager.set_brightness(&monitor_id, value).await {
-                                    tracing::error!("Failed to set brightness: {}", e);
-                                }
+                            if let Err(e) = ddc_manager.set_brightness(&monitor_id, value).await {
+                                tracing::error!("Failed to set brightness: {}", e);
                             }
                         });
                     },
@@ -445,17 +376,22 @@ impl BrightnessPopup {
                 cards_container.append(&card_widget);
             }
 
-            // Set override slider to first monitor's brightness
-            if let Some(first) = monitors.first() {
-                if let Ok(b) = ddc_manager.get_brightness(&first.unique_id()).await {
-                    override_suppress.store(true, Ordering::SeqCst);
-                    override_adjustment.set_value(b as f64);
-                    override_value_label.set_label(&format!("{}%", b));
+            // Set override slider to average brightness of all monitors
+            if !monitors.is_empty() {
+                let mut sum: u16 = 0;
+                let mut count: u16 = 0;
+                for m in &monitors {
+                    if let Ok(b) = ddc_manager.get_brightness(&m.unique_id()).await {
+                        sum += b;
+                        count += 1;
+                    }
                 }
-            }
-
-            if all_monitors_active.load(Ordering::SeqCst) {
-                override_row.set_visible(true);
+                if count > 0 {
+                    let avg = sum / count;
+                    override_suppress.store(true, Ordering::SeqCst);
+                    override_adjustment.set_value(avg as f64);
+                    override_value_label.set_label(&format!("{}%", avg));
+                }
             }
         });
 
@@ -470,5 +406,29 @@ impl BrightnessPopup {
     /// Get the window widget.
     pub fn widget(&self) -> &Window {
         &self.window
+    }
+}
+
+/// Find the brightness-value label inside a card widget.
+fn find_brightness_label(card: &Box) -> Option<Label> {
+    let mut child = card.first_child()?;
+    loop {
+        if let Ok(label) = child.clone().downcast::<Label>() {
+            if label.has_css_class("brightness-value") {
+                return Some(label);
+            }
+        }
+        if let Ok(hbox) = child.clone().downcast::<Box>() {
+            let mut inner = hbox.first_child()?;
+            loop {
+                if let Ok(label) = inner.clone().downcast::<Label>() {
+                    if label.has_css_class("brightness-value") {
+                        return Some(label);
+                    }
+                }
+                inner = inner.next_sibling()?;
+            }
+        }
+        child = child.next_sibling()?;
     }
 }
