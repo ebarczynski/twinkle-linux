@@ -227,6 +227,29 @@ impl SettingsDialog {
         let enable_presets_switch = Switch::builder().active(config.ui.enable_presets).build();
         container.append(&Self::make_row(&enable_presets_switch, "Show preset buttons"));
 
+        // Preset values section
+        container.append(&Self::make_section_label("<b>Brightness Presets</b>"));
+
+        let presets_label = Label::builder()
+            .label("Edit values in config file:\n~/.config/twinkle-linux/config.json\n\nPreset values and labels are\nconfigurable via JSON.")
+            .halign(gtk4::Align::Start)
+            .wrap(true)
+            .build();
+        container.append(&presets_label);
+
+        // Show current presets
+        let presets_info = config.ui.preset_values.iter()
+            .zip(config.ui.preset_labels.iter())
+            .map(|(v, l)| format!("  {}% - {}", v, l))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let current_presets = Label::builder()
+            .label(&format!("Current presets:\n{}", presets_info))
+            .halign(gtk4::Align::Start)
+            .wrap(true)
+            .build();
+        container.append(&current_presets);
+
         (container, auto_hide_spin, show_monitor_switch, enable_presets_switch)
     }
 

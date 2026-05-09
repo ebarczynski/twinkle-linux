@@ -84,8 +84,10 @@ pub struct UIConfig {
     pub show_monitor_selector: bool,
     /// Enable quick preset buttons
     pub enable_presets: bool,
-    /// Custom preset values
+    /// Custom preset values (brightness percentages)
     pub preset_values: Vec<u16>,
+    /// Preset labels (corresponds to preset_values)
+    pub preset_labels: Vec<String>,
 }
 
 impl Default for UIConfig {
@@ -94,7 +96,14 @@ impl Default for UIConfig {
             auto_hide_delay_ms: 3000,
             show_monitor_selector: false,
             enable_presets: true,
-            preset_values: vec![20, 40, 60, 80, 100],
+            preset_values: vec![10, 20, 40, 60, 80],
+            preset_labels: vec![
+                "Night".into(),
+                "Dusk".into(),
+                "Cloudy".into(),
+                "Sunny".into(),
+                "Full Sun".into(),
+            ],
         }
     }
 }
@@ -147,7 +156,7 @@ impl MonitorConfig {
             unique_id,
             display_name,
             last_brightness: 100,
-            brightness_presets: vec![20, 40, 60, 80, 100],
+            brightness_presets: vec![10, 20, 40, 60, 80],
             enabled_vcp_codes: vec![0x10, 0x12, 0x14, 0x60, 0x62],
             custom_vcp_values: std::collections::HashMap::new(),
         }

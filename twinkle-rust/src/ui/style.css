@@ -5,6 +5,12 @@
 window {
     background-color: #1a1a2e;
     border-radius: 12px;
+    color: #e0e0e0;
+}
+
+/* ─── All labels default to light text ─── */
+label {
+    color: #c8c8d8;
 }
 
 /* ─── Main Container ─── */
@@ -14,7 +20,7 @@ window {
 
 /* ─── Header ─── */
 .header-label {
-    color: #e0e0e0;
+    color: #ffffff;
     font-size: 15px;
     font-weight: 700;
     letter-spacing: 0.3px;
@@ -35,7 +41,7 @@ window {
 
 /* ─── Monitor Name Label ─── */
 .monitor-name {
-    color: #a0a0b8;
+    color: #b0b0c8;
     font-size: 11px;
     font-weight: 500;
     letter-spacing: 0.2px;
@@ -101,23 +107,25 @@ scale slider:active {
 /* ─── Preset Buttons ─── */
 .preset-button {
     background-color: #2a2a4a;
-    color: #a0a0b8;
+    color: #d0d0e0;
     border-radius: 6px;
     padding: 3px 8px;
     font-size: 11px;
     font-weight: 600;
-    border: none;
+    border: 1px solid #3a3a5a;
     min-width: 28px;
 }
 
 .preset-button:hover {
     background-color: #3a3a5a;
-    color: #e0e0e0;
+    color: #ffffff;
+    border-color: #5c6bc0;
 }
 
 .preset-button:active {
     background-color: #5c6bc0;
     color: #ffffff;
+    border-color: #7c8cf8;
 }
 
 /* ─── Icon styling ─── */
@@ -132,7 +140,7 @@ scale slider:active {
 }
 
 .sun-dim-icon {
-    color: #5c5c70;
+    color: #7c7c90;
     font-size: 12px;
 }
 
@@ -145,18 +153,22 @@ scale slider:active {
     font-size: 12px;
     font-weight: 600;
     border: none;
+    text-shadow: 0 1px 2px rgba(0,0,0,0.3);
 }
 
 .all-monitors-button:hover {
     background-color: #7c8cf8;
+    color: #ffffff;
 }
 
 .all-monitors-button:active {
     background-color: #3f51b5;
+    color: #ffffff;
 }
 
 .all-monitors-button.active {
     background-color: #7c8cf8;
+    color: #ffffff;
     box-shadow: inset 0 0 0 2px #9fa8ff;
 }
 
@@ -174,15 +186,107 @@ scale slider:active {
     padding: 6px 0px 0px 0px;
 }
 
+/* ─── Icon/Settings Button ─── */
 .icon-button {
-    background-color: transparent;
-    color: #7c7c90;
+    background-color: #2a2a4a;
+    color: #e0e0e0;
     border-radius: 8px;
-    padding: 4px 8px;
-    border: none;
+    padding: 4px 10px;
+    border: 1px solid #3a3a5a;
+    font-size: 14px;
 }
 
 .icon-button:hover {
+    background-color: #3a3a5a;
+    color: #ffffff;
+    border-color: #5c6bc0;
+}
+
+.icon-button:active {
+    background-color: #5c6bc0;
+    color: #ffffff;
+}
+
+/* ─── Global Button Fix ─── */
+button {
+    color: #e0e0e0;
+    font-weight: 500;
+}
+
+button:hover {
+    color: #ffffff;
+}
+
+button label {
+    color: inherit;
+}
+
+/* ─── Dialog styling ─── */
+dialog {
+    background-color: #1a1a2e;
+    color: #e0e0e0;
+}
+
+dialog label {
+    color: #c8c8d8;
+}
+
+dialog notebook tab {
+    color: #a0a0b8;
+    padding: 6px 12px;
+}
+
+dialog notebook tab:checked {
+    color: #7c8cf8;
+}
+
+dialog button {
     background-color: #2a2a4a;
     color: #e0e0e0;
+    border: 1px solid #3a3a5a;
+    padding: 4px 12px;
+}
+
+dialog button:hover {
+    background-color: #3a3a5a;
+    color: #ffffff;
+}
+
+/* ─── Switch styling ─── */
+switch {
+    background-color: #2a2a4a;
+}
+
+switch:checked {
+    background-color: #5c6bc0;
+}
+
+/* ─── SpinButton styling ─── */
+spinbutton {
+    background-color: #2a2a4a;
+    color: #e0e0e0;
+    border: 1px solid #3a3a5a;
+    border-radius: 4px;
+    padding: 2px 6px;
+}
+
+spinbutton:focus {
+    border-color: #5c6bc0;
+}
+
+/* ─── ComboBox styling ─── */
+combobox {
+    color: #e0e0e0;
+}
+
+combobox box {
+    background-color: #2a2a4a;
+    color: #e0e0e0;
+    border: 1px solid #3a3a5a;
+    border-radius: 4px;
+    padding: 2px 6px;
+}
+
+combobox box:hover {
+    border-color: #5c6bc0;
 }

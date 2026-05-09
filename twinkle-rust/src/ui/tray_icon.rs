@@ -58,10 +58,11 @@ impl Tray for TrayState {
 
     fn menu(&self) -> Vec<MenuItem<Self>> {
         let tx_show = self.tx.clone();
-        let tx_25 = self.tx.clone();
-        let tx_50 = self.tx.clone();
-        let tx_75 = self.tx.clone();
-        let tx_100 = self.tx.clone();
+        let tx_10 = self.tx.clone();
+        let tx_20 = self.tx.clone();
+        let tx_40 = self.tx.clone();
+        let tx_60 = self.tx.clone();
+        let tx_80 = self.tx.clone();
         let tx_settings = self.tx.clone();
         let tx_about = self.tx.clone();
         let tx_quit = self.tx.clone();
@@ -79,37 +80,46 @@ impl Tray for TrayState {
             MenuItem::Separator,
             // Quick brightness presets — set ALL monitors at once
             StandardItem {
-                label: "  25%  (Night)".into(),
+                label: "  10%  (Night)".into(),
                 icon_name: "weather-clear-night-symbolic".into(),
                 activate: Box::new(move |_this: &mut Self| {
-                    let _ = tx_25.send(TrayCommand::SetAllBrightness(25));
+                    let _ = tx_10.send(TrayCommand::SetAllBrightness(10));
                 }),
                 ..Default::default()
             }
             .into(),
             StandardItem {
-                label: "  50%  (Indoor)".into(),
+                label: "  20%  (Dusk)".into(),
                 icon_name: "weather-overcast-symbolic".into(),
                 activate: Box::new(move |_this: &mut Self| {
-                    let _ = tx_50.send(TrayCommand::SetAllBrightness(50));
+                    let _ = tx_20.send(TrayCommand::SetAllBrightness(20));
                 }),
                 ..Default::default()
             }
             .into(),
             StandardItem {
-                label: "  75%  (Day)".into(),
+                label: "  40%  (Cloudy)".into(),
                 icon_name: "weather-few-clouds-symbolic".into(),
                 activate: Box::new(move |_this: &mut Self| {
-                    let _ = tx_75.send(TrayCommand::SetAllBrightness(75));
+                    let _ = tx_40.send(TrayCommand::SetAllBrightness(40));
                 }),
                 ..Default::default()
             }
             .into(),
             StandardItem {
-                label: "  100%  (Max)".into(),
+                label: "  60%  (Sunny)".into(),
                 icon_name: "weather-clear-symbolic".into(),
                 activate: Box::new(move |_this: &mut Self| {
-                    let _ = tx_100.send(TrayCommand::SetAllBrightness(100));
+                    let _ = tx_60.send(TrayCommand::SetAllBrightness(60));
+                }),
+                ..Default::default()
+            }
+            .into(),
+            StandardItem {
+                label: "  80%  (Full Sun)".into(),
+                icon_name: "weather-clear-symbolic".into(),
+                activate: Box::new(move |_this: &mut Self| {
+                    let _ = tx_80.send(TrayCommand::SetAllBrightness(80));
                 }),
                 ..Default::default()
             }
