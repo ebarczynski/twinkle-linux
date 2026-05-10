@@ -1,8 +1,5 @@
 /// @file tray_icon.cpp
 /// @brief System tray icon using StatusNotifierItem over D-Bus.
-///
-/// Implements the org.freedesktop.StatusNotifierItem D-Bus interface
-/// using sdbus-c++. This is the same approach as ksni in Rust.
 
 #include "twinkle/ui/tray_icon.hpp"
 #include "twinkle/core/logger.hpp"
@@ -10,43 +7,41 @@
 
 namespace twinkle::ui {
 
-TrayIcon::TrayIcon(std::shared_ptr<ddc::DDCManager> ddc,
-                   std::shared_ptr<core::ConfigManager> cfg,
+TrayIcon::TrayIcon([[maybe_unused]] std::shared_ptr<ddc::DDCManager> ddc,
+                   [[maybe_unused]] std::shared_ptr<core::ConfigManager> cfg,
                    std::function<void(TrayCommand)> on_command)
     : on_command_(std::move(on_command)) {
 
     try {
         connection_ = sdbus::createSessionBusConnection();
 
-        // Create the SNI object at a unique path
         static int instance_id = 0;
         auto object_path = std::format("/org/freedesktop/StatusNotifierItem/twinkle_{}", instance_id++);
 
         sni_object_ = sdbus::createObject(*connection_, object_path);
 
-        // Register the StatusNotifierItem interface
+        // SNI methods — (x, y) coordinates are required by the spec but unused
         sni_object_->registerMethod("Activate")
             .onInterface("org.freedesktop.StatusNotifierItem")
-            .implementedAs([this](int32_t x, int32_t y) {
+            .implementedAs([this](int32_t /*x*/, int32_t /*y*/) {
                 if (on_command_) on_command_(TrayCommand::ShowBrightness);
             });
 
         sni_object_->registerMethod("ContextMenu")
             .onInterface("org.freedesktop.StatusNotifierItem")
-            .implementedAs([this](int32_t x, int32_t y) {
-                // Context menu is provided via D-Bus menu or just activate
+            .implementedAs([this](int32_t, int32_t) {
                 if (on_command_) on_command_(TrayCommand::ShowBrightness);
             });
 
         sni_object_->registerMethod("SecondaryActivate")
             .onInterface("org.freedesktop.StatusNotifierItem")
-            .implementedAs([this](int32_t x, int32_t y) {
+            .implementedAs([this](int32_t, int32_t) {
                 if (on_command_) on_command_(TrayCommand::ShowBrightness);
             });
 
         sni_object_->registerMethod("Scroll")
             .onInterface("org.freedesktop.StatusNotifierItem")
-            .implementedAs([](int32_t delta, const std::string& orientation) {});
+            .implementedAs([](int32_t, const std::string&) {});
 
         // Properties
         sni_object_->registerProperty("Id")
@@ -90,7 +85,7 @@ TrayIcon::TrayIcon(std::shared_ptr<ddc::DDCManager> ddc,
 
         sni_object_->finishRegistration();
 
-        // Register with the StatusNotifierWatcher
+        // Register with StatusNotifierWatcher
         auto watcher_proxy = sdbus::createProxy(
             *connection_,
             "org.freedesktop.StatusNotifierWatcher",
@@ -101,7 +96,6 @@ TrayIcon::TrayIcon(std::shared_ptr<ddc::DDCManager> ddc,
             .onInterface("org.freedesktop.StatusNotifierWatcher")
             .withArguments(service_name + object_path);
 
-        // Process D-Bus events in a background thread
         connection_->enterEventLoopAsync();
 
         LOG_INFO("SNI tray icon registered on D-Bus");

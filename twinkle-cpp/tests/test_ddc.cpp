@@ -79,8 +79,8 @@ TEST(CommandResult, ErrorMessage) {
     CommandResult result{
         .success = false,
         .return_code = 1,
-        .stderr_out = "error msg",
         .stdout_out = "output",
+        .stderr_out = "error msg",
         .command = "ddcutil detect",
     };
     auto msg = result.error_message();

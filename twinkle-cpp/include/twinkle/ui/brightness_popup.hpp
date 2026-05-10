@@ -1,14 +1,9 @@
 #pragma once
 /// @file brightness_popup.hpp
 /// @brief GTK4 brightness popup with card-based per-monitor sliders.
-///
-/// Architecture matches the Rust implementation:
-/// - "All Monitors" override slider always visible at top
-/// - Per-monitor cards built dynamically on each popup() call
-/// - 300ms debounce on all slider changes
-/// - Dark theme CSS loaded from data/style.css
 
 #include <gtk/gtk.h>
+#include "twinkle/ddc/monitor.hpp"
 #include <cstdint>
 #include <memory>
 #include <string>
@@ -65,7 +60,7 @@ private:
     void build_ui(GtkWindow* parent);
 
     /// Build a single monitor card.
-    [[nodiscard]] GtkWidget* build_card(const struct ddc::Monitor& mon, uint8_t brightness);
+    [[nodiscard]] GtkWidget* build_card(const ddc::Monitor& mon, uint8_t brightness);
 
     /// Connect the override slider.
     void connect_override();
