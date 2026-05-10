@@ -1,102 +1,80 @@
 #pragma once
+/// @file brightness_popup.hpp
+/// @brief GTK4 brightness popup with card-based per-monitor sliders.
+///
+/// Architecture matches the Rust implementation:
+/// - "All Monitors" override slider always visible at top
+/// - Per-monitor cards built dynamically on each popup() call
+/// - 300ms debounce on all slider changes
+/// - Dark theme CSS loaded from data/style.css
 
 #include <gtk/gtk.h>
 #include <cstdint>
-#include <functional>
 #include <memory>
 #include <string>
 #include <vector>
 
+namespace twinkle::ddc { class DDCManager; }
+namespace twinkle::core { class ConfigManager; }
+
 namespace twinkle::ui {
 
-/// Callback types for brightness popup events
-using BrightnessCallback = std::function<void(uint8_t)>;
-using MonitorCallback = std::function<void(const std::string&)>;
+/// A single monitor card with its slider.
+struct MonitorCard {
+    std::string monitor_id;
+    GtkWidget* card_widget{nullptr};
+    GtkAdjustment* adjustment{nullptr};
+    GtkWidget* value_label{nullptr};
+    bool suppress{false};  ///< Skip next value_changed if programmatic
+    guint debounce_id{0};  ///< g_timeout source ID
+};
 
-/// Brightness popup window
+/// GTK4 brightness popup window.
 class BrightnessPopup {
 public:
-    BrightnessPopup();
+    BrightnessPopup(GtkWindow* parent,
+                    std::shared_ptr<ddc::DDCManager> ddc,
+                    std::shared_ptr<core::ConfigManager> cfg);
     ~BrightnessPopup();
 
-    // Non-copyable but movable
     BrightnessPopup(const BrightnessPopup&) = delete;
     BrightnessPopup& operator=(const BrightnessPopup&) = delete;
-    BrightnessPopup(BrightnessPopup&&) noexcept = default;
-    BrightnessPopup& operator=(BrightnessPopup&&) noexcept = default;
 
-    /// Initialize popup window
-    [[nodiscard]] bool initialize();
+    /// Show the popup and refresh monitor cards.
+    void popup();
 
-    /// Show popup at cursor position
-    void show();
+    /// Hide the popup.
+    void popdown();
 
-    /// Hide popup
-    void hide();
-
-    /// Set current brightness value
-    void set_brightness(uint8_t brightness);
-
-    /// Get current brightness value
-    [[nodiscard]] uint8_t get_brightness() const noexcept { return current_brightness_; }
-
-    /// Set available monitors
-    void set_monitors(const std::vector<std::string>& monitors);
-
-    /// Set selected monitor
-    void set_selected_monitor(const std::string& monitor_id);
-
-    /// Set callback for brightness changes
-    void set_brightness_callback(BrightnessCallback callback) {
-        brightness_callback_ = std::move(callback);
-    }
-
-    /// Set callback for monitor selection
-    void set_monitor_callback(MonitorCallback callback) {
-        monitor_callback_ = std::move(callback);
-    }
-
-    /// Enable/disable monitor selector
-    void set_monitor_selector_visible(bool visible);
+    /// Get the underlying GTK window.
+    [[nodiscard]] GtkWindow* window() const noexcept { return window_; }
 
 private:
-    std::unique_ptr<GtkWindow, decltype(&g_object_unref)> window_;
-    std::unique_ptr<GtkScale, decltype(&g_object_unref)> brightness_slider_;
-    std::unique_ptr<GtkComboBoxText, decltype(&g_object_unref)> monitor_selector_;
-    std::unique_ptr<GtkLabel, decltype(&g_object_unref)> status_label_;
-    std::vector<std::unique_ptr<GtkWidget, decltype(&g_object_unref)>> preset_buttons_;
+    GtkWindow* window_{nullptr};
+    GtkWidget* cards_container_{nullptr};
+    GtkWidget* override_adjustment_{nullptr};
+    GtkWidget* override_value_label_{nullptr};
+    bool override_suppress_{false};
+    guint override_debounce_id_{0};
 
-    BrightnessCallback brightness_callback_;
-    MonitorCallback monitor_callback_;
-    uint8_t current_brightness_{50};
-    bool monitor_selector_visible_{false};
+    std::shared_ptr<ddc::DDCManager> ddc_;
+    std::shared_ptr<core::ConfigManager> config_;
+    std::vector<MonitorCard> cards_;
 
-    /// Create popup window
-    [[nodiscard]] bool create_window();
+    /// Build the UI widgets.
+    void build_ui(GtkWindow* parent);
 
-    /// Create brightness slider
-    [[nodiscard]] bool create_brightness_slider();
+    /// Build a single monitor card.
+    [[nodiscard]] GtkWidget* build_card(const struct ddc::Monitor& mon, uint8_t brightness);
 
-    /// Create monitor selector
-    [[nodiscard]] bool create_monitor_selector();
+    /// Connect the override slider.
+    void connect_override();
 
-    /// Create preset buttons
-    [[nodiscard]] bool create_preset_buttons();
+    /// Connect a per-monitor slider.
+    void connect_card_slider(MonitorCard& card, std::string monitor_id);
 
-    /// Create status label
-    [[nodiscard]] bool create_status_label();
-
-    /// Handle brightness slider change
-    static void on_brightness_changed(GtkRange* range, gpointer user_data);
-
-    /// Handle monitor selection change
-    static void on_monitor_changed(GtkComboBox* combo, gpointer user_data);
-
-    /// Handle preset button click
-    static void on_preset_click(GtkButton* button, gpointer user_data);
-
-    /// Handle window hide
-    static gboolean on_window_hide(GtkWidget* widget, GdkEvent* event, gpointer user_data);
+    /// Load CSS.
+    static void load_css();
 };
 
 } // namespace twinkle::ui

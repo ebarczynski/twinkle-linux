@@ -1,84 +1,58 @@
 #pragma once
+/// @file settings_dialog.hpp
+/// @brief GTK4 settings dialog with 4 tabs: General, UI, Behavior, Advanced.
 
 #include <gtk/gtk.h>
-#include <functional>
+#include <cstdint>
 #include <memory>
-#include <string>
-#include <vector>
+
+namespace twinkle::core { class ConfigManager; }
 
 namespace twinkle::ui::widgets {
 
-/// Callback type for settings apply
-using SettingsApplyCallback = std::function<void()>;
-
-/// Settings dialog with tabs
+/// Settings dialog.
 class SettingsDialog {
 public:
-    SettingsDialog();
+    SettingsDialog(GtkWindow* parent, std::shared_ptr<core::ConfigManager> cfg);
     ~SettingsDialog();
 
-    // Non-copyable but movable
     SettingsDialog(const SettingsDialog&) = delete;
     SettingsDialog& operator=(const SettingsDialog&) = delete;
-    SettingsDialog(SettingsDialog&&) noexcept = default;
-    SettingsDialog& operator=(SettingsDialog&&) noexcept = default;
 
-    /// Initialize dialog
-    [[nodiscard]] bool initialize();
-
-    /// Show dialog
     void show();
-
-    /// Hide dialog
     void hide();
 
-    /// Set callback for settings apply
-    void set_apply_callback(SettingsApplyCallback callback) {
-        apply_callback_ = std::move(callback);
-    }
-
 private:
-    std::unique_ptr<GtkDialog, decltype(&g_object_unref)> dialog_;
-    std::unique_ptr<GtkNotebook, decltype(&g_object_unref)> notebook_;
-    SettingsApplyCallback apply_callback_;
+    GtkWindow* dialog_{nullptr};
+    GtkNotebook* notebook_{nullptr};
+    std::shared_ptr<core::ConfigManager> config_;
 
     // General tab widgets
-    std::unique_ptr<GtkCheckButton, decltype(&g_object_unref)> autostart_checkbox_;
-    std::unique_ptr<GtkComboBoxText, decltype(&g_object_unref)> theme_combo_;
+    GtkSwitch* autostart_switch_{nullptr};
+    GtkComboBoxText* theme_combo_{nullptr};
+
+    // UI tab widgets
+    GtkSpinButton* auto_hide_spin_{nullptr};
+    GtkSwitch* show_monitor_switch_{nullptr};
+    GtkSwitch* enable_presets_switch_{nullptr};
 
     // Behavior tab widgets
-    std::unique_ptr<GtkSpinButton, decltype(&g_object_unref)> auto_hide_spin_;
-    std::unique_ptr<GtkSpinButton, decltype(&g_object_unref)> step_size_spin_;
-    std::unique_ptr<GtkCheckButton, decltype(&g_object_unref)> notifications_checkbox_;
+    GtkSpinButton* debounce_spin_{nullptr};
+    GtkSwitch* remember_brightness_switch_{nullptr};
+    GtkSwitch* restore_brightness_switch_{nullptr};
 
     // Advanced tab widgets
-    std::unique_ptr<GtkSpinButton, decltype(&g_object_unref)> timeout_spin_;
-    std::unique_ptr<GtkSpinButton, decltype(&g_object_unref)> retries_spin_;
-    std::unique_ptr<GtkCheckButton, decltype(&g_object_unref)> debug_checkbox_;
+    GtkSpinButton* timeout_spin_{nullptr};
+    GtkSpinButton* retries_spin_{nullptr};
+    GtkSwitch* debug_logging_switch_{nullptr};
 
-    /// Create dialog window
-    [[nodiscard]] bool create_dialog();
+    void build_general_tab();
+    void build_ui_tab();
+    void build_behavior_tab();
+    void build_advanced_tab();
+    void apply_settings();
 
-    /// Create tabs
-    [[nodiscard]] bool create_tabs();
-
-    /// Create general tab
-    [[nodiscard]] bool create_general_tab();
-
-    /// Create behavior tab
-    [[nodiscard]] bool create_behavior_tab();
-
-    /// Create advanced tab
-    [[nodiscard]] bool create_advanced_tab();
-
-    /// Handle apply button click
-    static void on_apply(GtkButton* button, gpointer user_data);
-
-    /// Handle close button click
-    static void on_close(GtkButton* button, gpointer user_data);
-
-    /// Handle dialog response
-    static void on_response(GtkDialog* dialog, gint response_id, gpointer user_data);
+    static void on_response(GtkDialog* dialog, int response_id, gpointer user_data);
 };
 
 } // namespace twinkle::ui::widgets

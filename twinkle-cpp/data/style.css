@@ -1,0 +1,334 @@
+/* Twinkle Linux - Simple Dark Theme */
+
+/* ─── Base Window ─── */
+window {
+    background-color: #1a1a2e;
+    color: #ffffff;
+}
+
+/* ─── All labels ─── */
+label {
+    color: #ffffff;
+}
+
+/* ─── Main Container ─── */
+.main-container {
+    padding: 16px 12px 12px 12px;
+}
+
+/* ─── Header ─── */
+.header-label {
+    color: #ffffff;
+    font-size: 15px;
+    font-weight: 700;
+    padding: 0px 4px 10px 4px;
+}
+
+/* ─── All Monitors Row (top slider) ─── */
+.all-monitors-row {
+    background-color: #2a2a4a;
+    border-radius: 10px;
+    padding: 10px 12px;
+    margin-bottom: 6px;
+}
+
+/* ─── Separator ─── */
+.separator {
+    min-height: 1px;
+    background-color: #3a3a5a;
+    margin: 4px 0px;
+}
+
+/* ─── Monitor Card ─── */
+.monitor-card {
+    background-color: #16213e;
+    border-radius: 10px;
+    padding: 10px 12px;
+    margin-bottom: 6px;
+}
+
+/* ─── Monitor Name ─── */
+.monitor-name {
+    color: #ffffff;
+    font-size: 11px;
+    font-weight: 600;
+}
+
+/* ─── Brightness Value ─── */
+.brightness-value {
+    color: #7c8cf8;
+    font-size: 13px;
+    font-weight: 700;
+    font-family: monospace;
+    min-width: 36px;
+}
+
+/* ─── Slider Row ─── */
+.slider-row {
+    padding: 2px 0px;
+}
+
+/* ─── Scale (Slider) ─── */
+scale {
+    min-height: 6px;
+    padding: 4px 0px;
+}
+
+scale trough {
+    min-height: 6px;
+    background-color: #333355;
+    border-radius: 3px;
+    border: none;
+}
+
+scale highlight {
+    min-height: 6px;
+    background: #7c8cf8;
+    border-radius: 3px;
+}
+
+scale slider {
+    min-width: 18px;
+    min-height: 18px;
+    margin: -7px;
+    background: #7c8cf8;
+    border: 2px solid #1a1a2e;
+    border-radius: 50%;
+}
+
+scale slider:hover {
+    background: #9fa8ff;
+}
+
+/* ─── ALL buttons: white text on dark ─── */
+button {
+    color: #ffffff;
+    background-color: #2a2a4a;
+    border: 1px solid #3a3a5a;
+    border-radius: 8px;
+    padding: 6px 12px;
+    font-weight: 600;
+}
+
+button:hover {
+    color: #ffffff;
+    background-color: #3a3a5a;
+    border-color: #5c6bc0;
+}
+
+button:active {
+    color: #ffffff;
+    background-color: #5c6bc0;
+}
+
+button label {
+    color: #ffffff;
+}
+
+/* ─── Icon/Settings Button ─── */
+.icon-button {
+    font-size: 16px;
+    padding: 4px 10px;
+}
+
+/* ─── Icon styling ─── */
+.monitor-icon {
+    color: #7c8cf8;
+    font-size: 14px;
+}
+
+.sun-icon {
+    color: #ffca28;
+    font-size: 12px;
+}
+
+.sun-dim-icon {
+    color: #aaaacc;
+    font-size: 12px;
+}
+
+/* ─── Bottom Toolbar ─── */
+.bottom-toolbar {
+    padding: 6px 0px 0px 0px;
+}
+
+/* ─── Preset Buttons ─── */
+.preset-button {
+    background-color: #2a2a4a;
+    color: #ffffff;
+    border-radius: 6px;
+    padding: 3px 8px;
+    font-size: 11px;
+    font-weight: 600;
+    border: 1px solid #3a3a5a;
+    min-width: 28px;
+}
+
+.preset-button:hover {
+    background-color: #3a3a5a;
+    color: #ffffff;
+}
+
+.preset-button:active {
+    background-color: #5c6bc0;
+    color: #ffffff;
+}
+
+/* ═══════════════════════════════════════════ */
+/* ─── SETTINGS DIALOG ───                    */
+/* ═══════════════════════════════════════════ */
+
+/* Dialog is a GtkWindow in GTK4 */
+dialog, window.dialog {
+    background-color: #1a1a2e;
+    color: #ffffff;
+}
+
+dialog label, window.dialog label {
+    color: #ffffff;
+}
+
+/* ─── Notebook (tabs) ─── */
+notebook {
+    background-color: #1a1a2e;
+    color: #ffffff;
+}
+
+notebook tab {
+    color: #aaaacc;
+    background-color: #22223a;
+    padding: 8px 16px;
+    border-radius: 6px 6px 0px 0px;
+}
+
+notebook tab:checked {
+    color: #7c8cf8;
+    background-color: #2a2a4a;
+}
+
+notebook tab:hover {
+    color: #ffffff;
+}
+
+notebook tab label {
+    color: inherit;
+}
+
+/* Notebook page content area */
+notebook > stack {
+    background-color: #1a1a2e;
+    color: #ffffff;
+}
+
+/* ─── Entry / text input fields ─── */
+entry, spinbutton, text {
+    background-color: #2a2a4a;
+    color: #ffffff;
+    border: 1px solid #3a3a5a;
+    border-radius: 4px;
+    padding: 4px 8px;
+}
+
+entry:focus, spinbutton:focus {
+    border-color: #5c6bc0;
+}
+
+spinbutton button {
+    background-color: #3a3a5a;
+    color: #ffffff;
+    border: none;
+    border-radius: 2px;
+    padding: 2px 6px;
+}
+
+spinbutton button:hover {
+    background-color: #5c6bc0;
+    color: #ffffff;
+}
+
+/* ─── ComboBox ─── */
+combobox {
+    color: #ffffff;
+}
+
+combobox box {
+    background-color: #2a2a4a;
+    color: #ffffff;
+    border: 1px solid #3a3a5a;
+    border-radius: 4px;
+    padding: 4px 8px;
+}
+
+combobox box:hover {
+    border-color: #5c6bc0;
+}
+
+combobox box label {
+    color: #ffffff;
+}
+
+/* ComboBox dropdown popover */
+popover {
+    background-color: #2a2a4a;
+    color: #ffffff;
+}
+
+popover label {
+    color: #ffffff;
+}
+
+/* ─── Switch ─── */
+switch {
+    background-color: #3a3a5a;
+}
+
+switch:checked {
+    background-color: #5c6bc0;
+}
+
+switch slider {
+    background-color: #ffffff;
+}
+
+/* ─── Dialog buttons (Cancel/Apply/OK) ─── */
+dialog button, window.dialog button {
+    color: #ffffff;
+    background-color: #2a2a4a;
+    border: 1px solid #3a3a5a;
+    padding: 6px 16px;
+}
+
+dialog button:hover, window.dialog button:hover {
+    color: #ffffff;
+    background-color: #3a3a5a;
+    border-color: #5c6bc0;
+}
+
+dialog button:active, window.dialog button:active {
+    color: #ffffff;
+    background-color: #5c6bc0;
+}
+
+dialog button label, window.dialog button label {
+    color: #ffffff;
+}
+
+/* ─── Scrollbar ─── */
+scrollbar {
+    background-color: #1a1a2e;
+}
+
+scrollbar slider {
+    background-color: #3a3a5a;
+    border-radius: 4px;
+}
+
+/* ─── Headerbar (if any) ─── */
+headerbar {
+    background-color: #16162e;
+    color: #ffffff;
+}
+
+headerbar label {
+    color: #ffffff;
+}

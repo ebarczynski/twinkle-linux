@@ -1,121 +1,64 @@
-# Twinkle Linux (C++23 Version)
+# Twinkle Linux (C++26)
 
-A GUI application for controlling external monitor brightness via DDC/CI on Linux, written in modern C++23 following best practices from Jason Turner and the C++ community.
+Monitor brightness control for Linux — GTK4 system tray app with DDC/CI and
+backlight support. The C++26 port of the proven Rust implementation.
 
 ## Features
 
-- **DDC/CI Backend**: Wrapper around ddcutil subprocess calls for monitor control
-- **System Tray Integration**: GTK-based system tray icon with context menu
-- **Brightness Control**: Brightness slider with real-time adjustment and debouncing
-- **Multi-Monitor Support**: Monitor selector dropdown with per-monitor brightness tracking
-- **Additional VCP Controls**: Contrast, Volume, Input Source, Color Temperature
-- **Settings Dialog**: Comprehensive settings with General, Behavior, and Advanced tabs
+- **DDC/CI Backend**: `ddcutil` subprocess wrapper with retry/backoff
+- **Internal Backlight**: `/sys/class/backlight` + systemd-logind D-Bus
+- **GTK4 System Tray**: StatusNotifierItem over D-Bus (sdbus-c++)
+- **Card-Based UI**: Per-monitor slider cards, "All Monitors" override
+- **300ms Debounce**: Smooth slider → monitor updates
+- **6 Tray Presets**: 10% Night, 20% Dusk, 40% Cloudy, 60% Sunny, 80% Full Sun, 100% Max
+- **Settings Dialog**: General, UI, Behavior, Advanced tabs
+- **Dark Theme**: White-on-dark CSS, no subtle grays
+- **JSON Config**: XDG-compliant (`~/.config/twinkle-linux/config.json`)
 
-## C++23 Best Practices
+## C++26 Features
 
-This implementation follows modern C++ best practices:
+| Feature | Usage |
+|---------|-------|
+| `std::expected<T,E>` | Error handling (replaces custom Result) |
+| `std::format` | Type-safe string formatting |
+| `constexpr` tables | VCP code registry at compile time |
+| Reflection (C++26) | Auto VCP enum→string, config serialization |
+| `std::latch`/`std::barrier` | Async coordination |
 
-- **RAII**: All resources are managed with RAII principles
-- **Smart Pointers**: `std::unique_ptr` for exclusive ownership
-- **Move Semantics**: Non-copyable but movable types
-- **Const Correctness**: All functions are properly marked `const` where appropriate
-- **`[[nodiscard]]`**: Functions with important return values are marked
-- **`noexcept`**: Functions that don't throw are marked `noexcept`
-- **`std::expected`-style Result Type**: Custom Result type for error handling
-- **Type Safety**: Strong types and enums for type safety
-- **Zero-cost Abstractions**: Templates and constexpr for compile-time optimization
+See [DESIGN.md](DESIGN.md) for the full architecture with Mermaid diagrams.
 
 ## Requirements
 
-- Linux operating system
-- C++23 compatible compiler (GCC 13+, Clang 16+)
-- ddcutil installed and configured
-- GTK3 development libraries
-- fmt library for formatting
+- C++26 compiler: GCC 15+ or Clang 19+
+- CMake 3.25+
+- GTK4 development libraries
+- fmt, nlohmann/json, sdbus-c++, GTest
+- `ddcutil` installed and configured
 
 ### Installing Dependencies
 
 ```bash
-# Ubuntu/Debian
-sudo apt install build-essential cmake libgtk-3-dev ddcutil pkg-config libfmt-dev
+# Ubuntu 24.10+
+sudo apt install build-essential cmake libgtk-4-dev libfmt-dev \
+    nlohmann-json3-dev libsdbus-c++-dev libgtest-dev ddcutil
 
-# Fedora
-sudo dnf install gcc-c++ cmake gtk3-devel ddcutil pkg-config fmt-devel
-
-# Arch Linux
-sudo pacman -S base-devel cmake gtk3 ddcutil pkg-config fmt
+# Fedora 41+
+sudo dnf install gcc-c++ cmake gtk4-devel fmt-devel \
+    nlohmann-json-devel sdbus-c++-devel gtest-devel ddcutil
 ```
 
 ## Building
 
 ```bash
-mkdir build
-cd build
-cmake ..
-make -j$(nproc)
+mkdir build && cd build
+cmake .. -DCMAKE_BUILD_TYPE=Release
+cmake --build . -j$(nproc)
 ```
 
 ## Running
 
 ```bash
 ./build/twinkle-linux
-```
-
-## Project Structure
-
-```
-twinkle-cpp/
-├── include/
-│   └── twinkle/
-│       ├── ddc/              # DDC/CI backend
-│       │   ├── error.hpp
-│       │   ├── vcp_codes.hpp
-│       │   ├── monitor.hpp
-│       │   ├── command_executor.hpp
-│       │   └── ddc_manager.hpp
-│       ├── ui/               # UI components
-│       │   ├── tray_icon.hpp
-│       │   ├── brightness_popup.hpp
-│       │   └── widgets/
-│       │       ├── brightness_slider.hpp
-│       │       └── settings_dialog.hpp
-│       └── core/             # Core functionality
-│           ├── logger.hpp
-│           └── config_manager.hpp
-├── src/
-│   ├── main.cpp
-│   ├── ddc/
-│   ├── ui/
-│   ├── ui/widgets/
-│   └── core/
-├── tests/
-├── CMakeLists.txt
-└── README.md
-```
-
-## Development
-
-### Code Style
-
-- Follow C++ Core Guidelines
-- Use `auto` only when type is obvious
-- Prefer `std::make_unique` over `new`
-- Use `constexpr` for compile-time constants
-- Use `enum class` for type-safe enums
-- Use `std::string_view` for string parameters
-
-### Building with Debug
-
-```bash
-cmake -DCMAKE_BUILD_TYPE=Debug ..
-make -j$(nproc)
-```
-
-### Building with Release
-
-```bash
-cmake -DCMAKE_BUILD_TYPE=Release ..
-make -j$(nproc)
 ```
 
 ## Testing
@@ -125,25 +68,66 @@ cd build
 ctest --output-on-failure
 ```
 
-## Monitor Compatibility
+## Project Structure
 
-This application is designed to work with any DDC/CI-compliant monitor, including:
+```
+twinkle-cpp/
+├── CMakeLists.txt
+├── DESIGN.md              ← Architecture + Mermaid diagrams
+├── README.md
+├── data/
+│   └── style.css           ← GTK4 dark theme
+├── include/twinkle/
+│   ├── ddc/                ← DDC/CI backend
+│   │   ├── error.hpp       ← std::expected-based errors
+│   │   ├── vcp_codes.hpp   ← constexpr VCP registry
+│   │   ├── command.hpp      ← ddcutil subprocess wrapper
+│   │   ├── monitor.hpp      ← Monitor struct + detector
+│   │   └── ddc_manager.hpp  ← High-level DDC API
+│   ├── core/
+│   │   ├── config.hpp       ← JSON config management
+│   │   └── logger.hpp       ← fmt-based logger
+│   └── ui/
+│       ├── brightness_popup.hpp  ← Card-based popup
+│       ├── tray_icon.hpp         ← SNI D-Bus tray
+│       └── widgets/
+│           ├── brightness_slider.hpp  ← Debounced slider
+│           └── settings_dialog.hpp    ← 4-tab settings
+├── src/                     ← mirrors include/
+├── tests/
+│   ├── test_ddc.cpp
+│   ├── test_config.cpp
+│   ├── test_monitor.cpp
+│   ├── test_vcp_codes.cpp
+│   └── test_utils.cpp
+└── scripts/
+```
 
-- **Lenovo** T24i (primary target)
-- **Dell** monitors
-- **LG** monitors
-- Most other DDC/CI-capable displays
+## Design Principles
+
+- **RAII**: All resources (GTK widgets, file handles, subprocess) managed via destructors
+- **`std::expected`**: No exceptions except for fatal errors; all fallible ops return expected
+- **`[[nodiscard]]`**: Important return values must be checked
+- **`noexcept`**: GTK signal handlers are noexcept
+- **`constexpr`**: VCP tables, config defaults — zero runtime cost
+- **Strong types**: `enum class` for VCP codes, monitor types, errors
+
+## Code Style
+
+- Follow C++ Core Guidelines
+- Use `auto` when type is obvious from context
+- Prefer `std::make_unique` over `new`
+- Use `std::string_view` for string parameters
+- Use `enum class` for type-safe enumerations
+- Use `std::format` over `printf`/`snprintf`
 
 ## License
 
-MIT License - see LICENSE file in parent directory
-
-## Contributing
-
-Contributions are welcome! Please ensure your code follows the C++23 best practices outlined above.
+MIT License — see LICENSE file in parent directory.
 
 ## Acknowledgments
 
 - Inspired by BetterDisplay on macOS
-- DDC/CI communication via ddcutil
-- C++ best practices from Jason Turner's C++ Weekly and C++ Now presentations
+- DDC/CI via ddcutil
+- Architecture proven in twinkle-rust
+- C++ best practices from Jason Turner's C++ Weekly

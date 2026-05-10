@@ -1,62 +1,47 @@
 #pragma once
+/// @file brightness_slider.hpp
+/// @brief Debounced brightness slider widget (GTK4).
 
 #include <gtk/gtk.h>
 #include <cstdint>
 #include <functional>
-#include <memory>
 
 namespace twinkle::ui::widgets {
 
-/// Callback type for brightness value changes
-using BrightnessChangedCallback = std::function<void(uint8_t)>;
-
-/// Brightness slider widget with debouncing
+/// Brightness slider with 300ms debounce.
 class BrightnessSlider {
 public:
     BrightnessSlider();
     ~BrightnessSlider();
 
-    // Non-copyable but movable
     BrightnessSlider(const BrightnessSlider&) = delete;
     BrightnessSlider& operator=(const BrightnessSlider&) = delete;
-    BrightnessSlider(BrightnessSlider&&) noexcept = default;
-    BrightnessSlider& operator=(BrightnessSlider&&) noexcept = default;
 
-    /// Initialize slider
-    [[nodiscard]] bool initialize();
+    /// Get the GTK widget.
+    [[nodiscard]] GtkWidget* widget() const noexcept { return container_; }
 
-    /// Get GTK widget
-    [[nodiscard]] GtkWidget* widget() const noexcept { return slider_.get(); }
-
-    /// Set current brightness value
+    /// Set value programmatically (does NOT trigger callback).
     void set_value(uint8_t value);
 
-    /// Get current brightness value
+    /// Get current value.
     [[nodiscard]] uint8_t get_value() const noexcept { return current_value_; }
 
-    /// Set callback for value changes
-    void set_callback(BrightnessChangedCallback callback) {
-        callback_ = std::move(callback);
-    }
+    /// Set the change callback (debounced 300ms).
+    void set_on_change(std::function<void(uint16_t)> callback);
 
-    /// Set debounce time in milliseconds
-    void set_debounce_ms(uint32_t ms) noexcept { debounce_ms_ = ms; }
-
-    /// Enable/disable widget
+    /// Enable/disable the slider.
     void set_enabled(bool enabled);
 
 private:
-    std::unique_ptr<GtkScale, decltype(&g_object_unref)> slider_;
-    BrightnessChangedCallback callback_;
+    GtkWidget* container_{nullptr};
+    GtkWidget* scale_{nullptr};
+    GtkAdjustment* adjustment_{nullptr};
     uint8_t current_value_{50};
-    uint32_t debounce_ms_{200};
+    bool suppress_{false};
     guint debounce_source_id_{0};
+    std::function<void(uint16_t)> callback_;
 
-    /// Handle slider value change
-    static void on_value_changed(GtkRange* range, gpointer user_data);
-
-    /// Debounced callback
-    gboolean on_debounced_callback();
+    static void on_value_changed(GtkAdjustment* adj, gpointer user_data);
 };
 
 } // namespace twinkle::ui::widgets

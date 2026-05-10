@@ -1,135 +1,119 @@
+/// @file tray_icon.cpp
+/// @brief System tray icon using StatusNotifierItem over D-Bus.
+///
+/// Implements the org.freedesktop.StatusNotifierItem D-Bus interface
+/// using sdbus-c++. This is the same approach as ksni in Rust.
+
 #include "twinkle/ui/tray_icon.hpp"
-#include <glib.h>
+#include "twinkle/core/logger.hpp"
+#include <sdbus-c++/sdbus-c++.h>
 
 namespace twinkle::ui {
 
-TrayIcon::TrayIcon()
-    : status_icon_(nullptr, g_object_unref) {}
+TrayIcon::TrayIcon(std::shared_ptr<ddc::DDCManager> ddc,
+                   std::shared_ptr<core::ConfigManager> cfg,
+                   std::function<void(TrayCommand)> on_command)
+    : on_command_(std::move(on_command)) {
+
+    try {
+        connection_ = sdbus::createSessionBusConnection();
+
+        // Create the SNI object at a unique path
+        static int instance_id = 0;
+        auto object_path = std::format("/org/freedesktop/StatusNotifierItem/twinkle_{}", instance_id++);
+
+        sni_object_ = sdbus::createObject(*connection_, sdbus::ObjectPath{object_path});
+
+        // Register the StatusNotifierItem interface
+        sni_object_->registerMethod("Activate")
+            .onInterface("org.freedesktop.StatusNotifierItem")
+            .implementedAs([this](int32_t x, int32_t y) {
+                if (on_command_) on_command_(TrayCommand::ShowBrightness);
+            });
+
+        sni_object_->registerMethod("ContextMenu")
+            .onInterface("org.freedesktop.StatusNotifierItem")
+            .implementedAs([this](int32_t x, int32_t y) {
+                // Context menu is provided via D-Bus menu or just activate
+                if (on_command_) on_command_(TrayCommand::ShowBrightness);
+            });
+
+        sni_object_->registerMethod("SecondaryActivate")
+            .onInterface("org.freedesktop.StatusNotifierItem")
+            .implementedAs([this](int32_t x, int32_t y) {
+                if (on_command_) on_command_(TrayCommand::ShowBrightness);
+            });
+
+        sni_object_->registerMethod("Scroll")
+            .onInterface("org.freedesktop.StatusNotifierItem")
+            .implementedAs([](int32_t delta, const std::string& orientation) {});
+
+        // Properties
+        sni_object_->registerProperty("Id")
+            .onInterface("org.freedesktop.StatusNotifierItem")
+            .withGetter([]() { return std::string{"twinkle-linux"}; });
+
+        sni_object_->registerProperty("Title")
+            .onInterface("org.freedesktop.StatusNotifierItem")
+            .withGetter([]() { return std::string{"Twinkle Linux"}; });
+
+        sni_object_->registerProperty("Status")
+            .onInterface("org.freedesktop.StatusNotifierItem")
+            .withGetter([]() { return std::string{"Active"}; });
+
+        sni_object_->registerProperty("IconName")
+            .onInterface("org.freedesktop.StatusNotifierItem")
+            .withGetter([]() { return std::string{"display-brightness"}; });
+
+        sni_object_->registerProperty("IconThemePath")
+            .onInterface("org.freedesktop.StatusNotifierItem")
+            .withGetter([]() { return std::string{""}; });
+
+        sni_object_->registerProperty("ToolTip")
+            .onInterface("org.freedesktop.StatusNotifierItem")
+            .withGetter([]() -> sdbus::Struct<std::string, std::vector<std::string>, std::string, std::string> {
+                return sdbus::make_struct(
+                    std::string{"Twinkle Linux"},
+                    std::vector<std::string>{},
+                    std::string{"Monitor brightness control"},
+                    std::string{}
+                );
+            });
+
+        sni_object_->registerProperty("Category")
+            .onInterface("org.freedesktop.StatusNotifierItem")
+            .withGetter([]() { return std::string{"Hardware"}; });
+
+        sni_object_->registerProperty("ItemIsMenu")
+            .onInterface("org.freedesktop.StatusNotifierItem")
+            .withGetter([]() { return false; });
+
+        sni_object_->finishRegistration();
+
+        // Register with the StatusNotifierWatcher
+        auto watcher_proxy = sdbus::createProxy(
+            *connection_,
+            sdbus::ServiceName{"org.freedesktop.StatusNotifierWatcher"},
+            sdbus::ObjectPath{"/StatusNotifierWatcher"});
+
+        auto service_name = connection_->getUniqueName();
+        watcher_proxy->callMethod("RegisterStatusNotifierItem")
+            .onInterface("org.freedesktop.StatusNotifierWatcher")
+            .withArguments(service_name + object_path);
+
+        // Process D-Bus events in a background thread
+        connection_->enterEventLoopAsync();
+
+        LOG_INFO("SNI tray icon registered on D-Bus");
+
+    } catch (const sdbus::Error& e) {
+        LOG_ERROR("Failed to create SNI tray: {}", e.what());
+    }
+}
 
 TrayIcon::~TrayIcon() {
-    hide();
-}
-
-bool TrayIcon::initialize() {
-    // Create status icon
-    status_icon_.reset(gtk_status_icon_new("twinkle-linux"));
-
-    if (!status_icon_) {
-        return false;
-    }
-
-    // Set icon (using a simple icon for now)
-    GdkPixbuf* pixbuf = gdk_pixbuf_new(GDK_COLORSPACE_RGB, TRUE, 8, 32, 32);
-    if (pixbuf) {
-        gtk_status_icon_set_from_pixbuf(status_icon_.get(), pixbuf);
-        g_object_unref(pixbuf);
-    }
-
-    // Set tooltip
-    gtk_status_icon_set_tooltip_text(status_icon_.get(), "Twinkle Linux - Brightness Control");
-
-    // Connect signals
-    g_signal_connect(status_icon_.get(), "activate",
-                   G_CALLBACK(on_tray_click), this);
-    g_signal_connect(status_icon_.get(), "popup-menu",
-                   G_CALLBACK(on_tray_click), this);
-
-    return true;
-}
-
-void TrayIcon::show() {
-    if (status_icon_) {
-        gtk_status_icon_set_visible(status_icon_.get(), TRUE);
-    }
-}
-
-void TrayIcon::hide() {
-    if (status_icon_) {
-        gtk_status_icon_set_visible(status_icon_.get(), FALSE);
-    }
-}
-
-void TrayIcon::update_icon(bool monitors_available) {
-    // Update icon based on monitor state
-    // For now, just show/hide
-    if (monitors_available) {
-        show();
-    } else {
-        hide();
-    }
-}
-
-GtkWidget* TrayIcon::create_menu() {
-    GtkWidget* menu = gtk_menu_new();
-
-    // Brightness Control
-    GtkWidget* brightness_item = gtk_menu_item_new_with_label("Brightness Control");
-    g_signal_connect(brightness_item, "activate",
-                   G_CALLBACK(on_menu_item_click), this);
-    gtk_menu_shell_append(GTK_MENU_SHELL(menu), brightness_item);
-
-    // Separator
-    GtkWidget* separator = gtk_separator_menu_item_new();
-    gtk_menu_shell_append(GTK_MENU_SHELL(menu), separator);
-
-    // Settings
-    GtkWidget* settings_item = gtk_menu_item_new_with_label("Settings");
-    g_signal_connect(settings_item, "activate",
-                   G_CALLBACK(on_menu_item_click), this);
-    gtk_menu_shell_append(GTK_MENU_SHELL(menu), settings_item);
-
-    // Quit
-    GtkWidget* quit_item = gtk_image_menu_item_new_from_stock(GTK_STOCK_QUIT, nullptr);
-    g_signal_connect(quit_item, "activate",
-                   G_CALLBACK(on_menu_item_click), this);
-    gtk_menu_shell_append(GTK_MENU_SHELL(menu), quit_item);
-
-    gtk_widget_show_all(menu);
-
-    return menu;
-}
-
-void TrayIcon::on_menu_item_click(GtkWidget* widget, gpointer data) {
-    TrayIcon* self = static_cast<TrayIcon*>(data);
-    const gchar* label = gtk_menu_item_get_label(GTK_MENU_ITEM(widget));
-
-    if (label) {
-        if (strcmp(label, "Brightness Control") == 0) {
-            if (self->brightness_callback_) {
-                self->brightness_callback_();
-            }
-        } else if (strcmp(label, "Settings") == 0) {
-            if (self->settings_callback_) {
-                self->settings_callback_();
-            }
-        }
-    } else {
-        // Quit item (no label)
-        if (self->quit_callback_) {
-            self->quit_callback_();
-        }
-    }
-}
-
-void TrayIcon::on_tray_click(GtkStatusIcon* status_icon, gpointer user_data) {
-    TrayIcon* self = static_cast<TrayIcon*>(user_data);
-
-    // Show menu on right-click, brightness popup on left-click
-    guint button;
-    guint activate_time;
-    gdk_event_get_button(gdk_event_get(), &button, nullptr);
-    activate_time = gtk_get_current_event_time();
-
-    if (button == 3) {
-        // Right-click - show menu
-        GtkWidget* menu = self->create_menu();
-        gtk_menu_popup(GTK_MENU(menu), nullptr, nullptr, nullptr, nullptr,
-                      button, activate_time);
-    } else {
-        // Left-click - show brightness popup
-        if (self->brightness_callback_) {
-            self->brightness_callback_();
-        }
+    if (connection_) {
+        connection_->leaveEventLoop();
     }
 }
 

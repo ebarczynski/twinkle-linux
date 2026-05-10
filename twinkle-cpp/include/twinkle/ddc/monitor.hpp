@@ -1,96 +1,124 @@
 #pragma once
+/// @file monitor.hpp
+/// @brief Monitor struct and detector.
 
-#include "twinkle/ddc/vcp_codes.hpp"
+#include "twinkle/ddc/error.hpp"
+#include <chrono>
 #include <cstdint>
+#include <set>
 #include <string>
-#include <string_view>
 #include <vector>
 
 namespace twinkle::ddc {
 
-/// Monitor capabilities
+/// Whether this is an external DDC/CI monitor or internal backlight.
+enum class MonitorType : uint8_t {
+    External,  ///< DDC/CI over I2C
+    Internal,  ///< Kernel backlight sysfs
+};
+
+/// Monitor capabilities queried from ddcutil.
 struct MonitorCapabilities {
-    std::vector<uint16_t> supported_vcp_codes; ///< Supported VCP codes
-    bool supports_brightness{true};             ///< Supports brightness control
-    bool supports_contrast{true};              ///< Supports contrast control
-    bool supports_volume{false};               ///< Supports volume control
-    bool supports_input_source{true};          ///< Supports input source selection
-    bool supports_color_temp{true};            ///< Supports color temperature
+    std::set<uint8_t> supported_vcp_codes;
+    uint16_t max_brightness{100};
+    uint16_t max_contrast{100};
+    bool supports_input_source{false};
+    bool supports_power_control{false};
+    bool supports_audio{false};
+
+    [[nodiscard]] bool supports_vcp(uint8_t code) const noexcept {
+        return supported_vcp_codes.contains(code);
+    }
 };
 
-/// Monitor representation
-class Monitor {
-public:
-    Monitor(uint8_t bus, std::string model, std::string serial,
-            std::string manufacturer, MonitorCapabilities caps);
+/// Represents a physical monitor connected to the system.
+struct Monitor {
+    int32_t bus{-1};
+    std::string model{"Unknown Monitor"};
+    std::string serial;
+    std::string manufacturer;
+    std::string edid_data;
+    MonitorCapabilities capabilities;
+    MonitorType monitor_type{MonitorType::External};
+    std::string backlight_path;  ///< /sys/class/backlight/... (internal only)
 
-    // Non-copyable but movable (RAII best practice)
-    Monitor(const Monitor&) = delete;
-    Monitor& operator=(const Monitor&) = delete;
-    Monitor(Monitor&&) noexcept = default;
-    Monitor& operator=(Monitor&&) noexcept = default;
-    ~Monitor() = default;
+    // ── Factory methods ──────────────────────────────────────
 
-    /// Get monitor bus number
-    [[nodiscard]] uint8_t bus() const noexcept { return bus_; }
+    /// Create an external DDC/CI monitor.
+    [[nodiscard]] static Monitor external(int32_t bus) {
+        return Monitor{.bus = bus, .monitor_type = MonitorType::External};
+    }
 
-    /// Get monitor model name
-    [[nodiscard]] const std::string& model() const noexcept { return model_; }
+    /// Create an internal backlight display.
+    [[nodiscard]] static Monitor internal(std::string_view name, std::string_view path) {
+        return Monitor{
+            .model = std::string{name},
+            .manufacturer = "Internal",
+            .monitor_type = MonitorType::Internal,
+            .backlight_path = std::string{path},
+        };
+    }
 
-    /// Get monitor serial number
-    [[nodiscard]] const std::string& serial() const noexcept { return serial_; }
+    // ── Accessors ────────────────────────────────────────────
 
-    /// Get monitor manufacturer
-    [[nodiscard]] const std::string& manufacturer() const noexcept { return manufacturer_; }
+    /// Human-readable display name.
+    [[nodiscard]] std::string display_name() const {
+        if (monitor_type == MonitorType::Internal) {
+            return std::format("{} (Internal)", model);
+        }
+        if (!manufacturer.empty() && model != "Unknown Monitor") {
+            if (!serial.empty() && serial != "Unknown")
+                return std::format("{} {} ({})", manufacturer, model, serial);
+            return std::format("{} {}", manufacturer, model);
+        }
+        if (model != "Unknown Monitor") {
+            if (!serial.empty() && serial != "Unknown")
+                return std::format("{} ({})", model, serial);
+            return model;
+        }
+        return std::format("Monitor (bus {})", bus);
+    }
 
-    /// Get monitor capabilities
-    [[nodiscard]] const MonitorCapabilities& capabilities() const noexcept { return caps_; }
+    /// Unique identifier for config caching.
+    [[nodiscard]] std::string unique_id() const {
+        if (monitor_type == MonitorType::Internal)
+            return std::format("internal_{}", model);
+        if (!serial.empty() && serial != "Unknown")
+            return serial;
+        return std::format("{}_bus{}", model, bus);
+    }
 
-    /// Get unique ID for the monitor
-    [[nodiscard]] std::string unique_id() const;
-
-    /// Get display name (model + serial if available)
-    [[nodiscard]] std::string display_name() const;
-
-    /// Check if VCP code is supported
-    [[nodiscard]] bool supports_vcp(uint16_t code) const noexcept;
-
-private:
-    uint8_t bus_;
-    std::string model_;
-    std::string serial_;
-    std::string manufacturer_;
-    MonitorCapabilities caps_;
+    /// Validate monitor data.
+    [[nodiscard]] DDCVoid validate() const {
+        if (monitor_type == MonitorType::External && bus < 0)
+            return std::unexpected(DDCError::MonitorNotFound);
+        return {};
+    }
 };
 
-/// Monitor detector for discovering connected monitors
+/// Detects monitors on the system (DDC/CI + backlight).
 class MonitorDetector {
 public:
-    MonitorDetector() = default;
-    ~MonitorDetector() = default;
+    explicit MonitorDetector(class CommandExecutor& executor)
+        : executor_(executor) {}
 
-    // Non-copyable but movable
-    MonitorDetector(const MonitorDetector&) = delete;
-    MonitorDetector& operator=(const MonitorDetector&) = delete;
-    MonitorDetector(MonitorDetector&&) noexcept = default;
-    MonitorDetector& operator=(MonitorDetector&&) noexcept = default;
-
-    /// Detect all connected monitors
-    [[nodiscard]] std::vector<Monitor> detect_monitors() const;
-
-    /// Find monitor by bus number
-    [[nodiscard]] const Monitor* find_by_bus(uint8_t bus) const;
-
-    /// Find monitor by serial number
-    [[nodiscard]] const Monitor* find_by_serial(std::string_view serial) const;
+    /// Detect all monitors (internal backlight + external DDC/CI).
+    [[nodiscard]] DDCResult<std::vector<Monitor>> detect_monitors();
 
 private:
-    /// Parse EDID data to extract monitor information
-    [[nodiscard]] bool parse_edid(uint8_t bus, std::string& model,
-                                  std::string& serial, std::string& manufacturer) const;
+    CommandExecutor& executor_;
 
-    /// Query monitor capabilities
-    [[nodiscard]] MonitorCapabilities query_capabilities(uint8_t bus) const;
+    /// Scan /sys/class/backlight for internal displays.
+    void detect_internal_backlights(std::vector<Monitor>& out);
+
+    /// Parse ddcutil detect output.
+    [[nodiscard]] DDCResult<std::vector<Monitor>> parse_detect_output(std::string_view output);
+
+    /// Get capabilities for a bus.
+    [[nodiscard]] DDCResult<MonitorCapabilities> get_capabilities(int32_t bus);
+
+    /// Parse capabilities output.
+    [[nodiscard]] MonitorCapabilities parse_capabilities(std::string_view output);
 };
 
 } // namespace twinkle::ddc

@@ -1,182 +1,238 @@
+/// @file settings_dialog.cpp
+/// @brief GTK4 settings dialog with 4 tabs.
+
 #include "twinkle/ui/widgets/settings_dialog.hpp"
+#include "twinkle/core/config.hpp"
+#include "twinkle/core/logger.hpp"
 
 namespace twinkle::ui::widgets {
 
-SettingsDialog::SettingsDialog()
-    : dialog_(nullptr, g_object_unref),
-      notebook_(nullptr, g_object_unref) {}
+SettingsDialog::SettingsDialog(GtkWindow* parent,
+                               std::shared_ptr<core::ConfigManager> cfg)
+    : config_(std::move(cfg)) {
 
-SettingsDialog::~SettingsDialog() {
-    hide();
-}
-
-bool SettingsDialog::initialize() {
-    return create_dialog();
-}
-
-void SettingsDialog::show() {
-    if (dialog_) {
-        gtk_window_present(GTK_WINDOW(dialog_.get()));
-    }
-}
-
-void SettingsDialog::hide() {
-    if (dialog_) {
-        gtk_widget_hide(GTK_WIDGET(dialog_.get()));
-    }
-}
-
-bool SettingsDialog::create_dialog() {
-    // Create dialog
-    dialog_.reset(gtk_dialog_new_with_buttons(
-        "Settings",
-        nullptr,
+    dialog_ = GTK_WINDOW(gtk_dialog_new_with_buttons(
+        "Twinkle Linux Settings",
+        parent,
         GTK_DIALOG_MODAL | GTK_DIALOG_DESTROY_WITH_PARENT,
+        "_Cancel", GTK_RESPONSE_CANCEL,
         "_Apply", GTK_RESPONSE_APPLY,
-        "_Close", GTK_RESPONSE_CLOSE,
+        "_OK", GTK_RESPONSE_OK,
         nullptr));
 
-    gtk_window_set_default_size(GTK_WINDOW(dialog_.get()), 500, 400);
+    gtk_window_set_default_size(dialog_, 500, 450);
 
-    // Get content area
-    GtkWidget* content_area = gtk_dialog_get_content_area(GTK_DIALOG(dialog_.get()));
+    notebook_ = GTK_NOTEBOOK(gtk_notebook_new());
+    gtk_widget_set_margin_top(GTK_WIDGET(notebook_), 8);
+    gtk_widget_set_margin_bottom(GTK_WIDGET(notebook_), 8);
+    gtk_widget_set_margin_start(GTK_WIDGET(notebook_), 8);
+    gtk_widget_set_margin_end(GTK_WIDGET(notebook_), 8);
 
-    // Create notebook (tabs)
-    if (!create_tabs()) {
-        return false;
-    }
+    build_general_tab();
+    build_ui_tab();
+    build_behavior_tab();
+    build_advanced_tab();
 
-    gtk_box_pack_start(GTK_BOX(content_area), GTK_WIDGET(notebook_.get()), TRUE, TRUE, 0);
+    auto* content = gtk_dialog_get_content_area(GTK_DIALOG(dialog_));
+    gtk_box_append(GTK_BOX(content), GTK_WIDGET(notebook_));
 
-    // Connect response signal
-    g_signal_connect(dialog_.get(), "response",
-                   G_CALLBACK(on_response), this);
-
-    gtk_widget_show_all(GTK_WIDGET(dialog_.get()));
-
-    return true;
+    g_signal_connect(dialog_, "response",
+        G_CALLBACK(SettingsDialog::on_response), this);
 }
 
-bool SettingsDialog::create_tabs() {
-    notebook_.reset(gtk_notebook_new());
-
-    if (!create_general_tab() ||
-        !create_behavior_tab() ||
-        !create_advanced_tab()) {
-        return false;
-    }
-
-    return true;
+SettingsDialog::~SettingsDialog() {
+    if (dialog_) gtk_window_destroy(dialog_);
 }
 
-bool SettingsDialog::create_general_tab() {
-    GtkWidget* vbox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 10);
-    gtk_container_set_border_width(GTK_CONTAINER(vbox), 10);
+void SettingsDialog::show() { gtk_window_present(dialog_); }
+void SettingsDialog::hide() { gtk_widget_set_visible(GTK_WIDGET(dialog_), FALSE); }
 
-    // Autostart checkbox
-    autostart_checkbox_.reset(gtk_check_button_new_with_label("Start on system login"));
-    gtk_box_pack_start(GTK_BOX(vbox), GTK_WIDGET(autostart_checkbox_.get()), FALSE, FALSE, 0);
+void SettingsDialog::build_general_tab() {
+    auto* vbox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 10);
+    gtk_widget_set_margin_top(vbox, 10);
+    gtk_widget_set_margin_bottom(vbox, 10);
+    gtk_widget_set_margin_start(vbox, 10);
+    gtk_widget_set_margin_end(vbox, 10);
 
-    // Theme combo
-    GtkWidget* hbox = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 5);
-    GtkWidget* label = gtk_label_new("Theme:");
-    theme_combo_.reset(gtk_combo_box_text_new());
-    gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(theme_combo_.get()), "Auto");
-    gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(theme_combo_.get()), "Light");
-    gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(theme_combo_.get()), "Dark");
-    gtk_box_pack_start(GTK_BOX(hbox), label, FALSE, FALSE, 0);
-    gtk_box_pack_start(GTK_BOX(hbox), GTK_WIDGET(theme_combo_.get()), TRUE, TRUE, 0);
-    gtk_box_pack_start(GTK_BOX(vbox), hbox, FALSE, FALSE, 0);
+    // Autostart
+    autostart_switch_ = GTK_SWITCH(gtk_switch_new());
+    auto* autostart_row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
+    auto* autostart_lbl = gtk_label_new("Start on system login");
+    gtk_widget_set_hexpand(autostart_lbl, TRUE);
+    gtk_widget_set_halign(autostart_lbl, GTK_ALIGN_START);
+    gtk_box_append(GTK_BOX(autostart_row), autostart_lbl);
+    gtk_box_append(GTK_BOX(autostart_row), GTK_WIDGET(autostart_switch_));
+    gtk_box_append(GTK_BOX(vbox), autostart_row);
 
-    gtk_notebook_append_page(GTK_NOTEBOOK(notebook_.get()), vbox, gtk_label_new("General"));
+    // Theme
+    auto* theme_row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
+    auto* theme_lbl = gtk_label_new("Theme:");
+    theme_combo_ = GTK_COMBO_BOX_TEXT(gtk_combo_box_text_new());
+    gtk_combo_box_text_append(theme_combo_, "system", "System");
+    gtk_combo_box_text_append(theme_combo_, "light", "Light");
+    gtk_combo_box_text_append(theme_combo_, "dark", "Dark");
+    gtk_combo_box_set_active_id(GTK_COMBO_BOX(theme_combo_), "system");
+    gtk_box_append(GTK_BOX(theme_row), theme_lbl);
+    gtk_box_append(GTK_BOX(theme_row), GTK_WIDGET(theme_combo_));
+    gtk_box_append(GTK_BOX(vbox), theme_row);
 
-    return true;
+    gtk_notebook_append_page(notebook_, vbox, gtk_label_new("General"));
 }
 
-bool SettingsDialog::create_behavior_tab() {
-    GtkWidget* vbox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 10);
-    gtk_container_set_border_width(GTK_CONTAINER(vbox), 10);
+void SettingsDialog::build_ui_tab() {
+    auto* vbox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 10);
+    gtk_widget_set_margin_top(vbox, 10);
+    gtk_widget_set_margin_bottom(vbox, 10);
+    gtk_widget_set_margin_start(vbox, 10);
+    gtk_widget_set_margin_end(vbox, 10);
 
     // Auto-hide delay
-    GtkWidget* hbox1 = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 5);
-    GtkWidget* label1 = gtk_label_new("Auto-hide delay (ms):");
-    auto_hide_spin_.reset(gtk_spin_button_new_with_range(1000, 10000, 100));
-    gtk_spin_button_set_value(GTK_SPIN_BUTTON(auto_hide_spin_.get()), 3000);
-    gtk_box_pack_start(GTK_BOX(hbox1), label1, FALSE, FALSE, 0);
-    gtk_box_pack_start(GTK_BOX(hbox1), GTK_WIDGET(auto_hide_spin_.get()), TRUE, TRUE, 0);
-    gtk_box_pack_start(GTK_BOX(vbox), hbox1, FALSE, FALSE, 0);
+    auto* hide_row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
+    auto* hide_lbl = gtk_label_new("Auto-hide delay (ms):");
+    auto_hide_spin_ = GTK_SPIN_BUTTON(gtk_spin_button_new_with_range(0, 30000, 100));
+    gtk_spin_button_set_value(auto_hide_spin_, 3000);
+    gtk_box_append(GTK_BOX(hide_row), hide_lbl);
+    gtk_box_append(GTK_BOX(hide_row), GTK_WIDGET(auto_hide_spin_));
+    gtk_box_append(GTK_BOX(vbox), hide_row);
 
-    // Brightness step size
-    GtkWidget* hbox2 = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 5);
-    GtkWidget* label2 = gtk_label_new("Brightness step size:");
-    step_size_spin_.reset(gtk_spin_button_new_with_range(1, 10, 1));
-    gtk_spin_button_set_value(GTK_SPIN_BUTTON(step_size_spin_.get()), 1);
-    gtk_box_pack_start(GTK_BOX(hbox2), label2, FALSE, FALSE, 0);
-    gtk_box_pack_start(GTK_BOX(hbox2), GTK_WIDGET(step_size_spin_.get()), TRUE, TRUE, 0);
-    gtk_box_pack_start(GTK_BOX(vbox), hbox2, FALSE, FALSE, 0);
+    // Show monitor selector
+    show_monitor_switch_ = GTK_SWITCH(gtk_switch_new());
+    auto* mon_row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
+    auto* mon_lbl = gtk_label_new("Show monitor selector");
+    gtk_widget_set_hexpand(mon_lbl, TRUE);
+    gtk_widget_set_halign(mon_lbl, GTK_ALIGN_START);
+    gtk_box_append(GTK_BOX(mon_row), mon_lbl);
+    gtk_box_append(GTK_BOX(mon_row), GTK_WIDGET(show_monitor_switch_));
+    gtk_box_append(GTK_BOX(vbox), mon_row);
 
-    // Notifications checkbox
-    notifications_checkbox_.reset(gtk_check_button_new_with_label("Show notifications"));
-    gtk_box_pack_start(GTK_BOX(vbox), GTK_WIDGET(notifications_checkbox_.get()), FALSE, FALSE, 0);
+    // Enable presets
+    enable_presets_switch_ = GTK_SWITCH(gtk_switch_new());
+    gtk_switch_set_active(enable_presets_switch_, TRUE);
+    auto* preset_row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
+    auto* preset_lbl = gtk_label_new("Enable quick presets");
+    gtk_widget_set_hexpand(preset_lbl, TRUE);
+    gtk_widget_set_halign(preset_lbl, GTK_ALIGN_START);
+    gtk_box_append(GTK_BOX(preset_row), preset_lbl);
+    gtk_box_append(GTK_BOX(preset_row), GTK_WIDGET(enable_presets_switch_));
+    gtk_box_append(GTK_BOX(vbox), preset_row);
 
-    gtk_notebook_append_page(GTK_NOTEBOOK(notebook_.get()), vbox, gtk_label_new("Behavior"));
-
-    return true;
+    gtk_notebook_append_page(notebook_, vbox, gtk_label_new("UI"));
 }
 
-bool SettingsDialog::create_advanced_tab() {
-    GtkWidget* vbox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 10);
-    gtk_container_set_border_width(GTK_CONTAINER(vbox), 10);
+void SettingsDialog::build_behavior_tab() {
+    auto* vbox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 10);
+    gtk_widget_set_margin_top(vbox, 10);
+    gtk_widget_set_margin_bottom(vbox, 10);
+    gtk_widget_set_margin_start(vbox, 10);
+    gtk_widget_set_margin_end(vbox, 10);
+
+    // Debounce delay
+    auto* deb_row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
+    auto* deb_lbl = gtk_label_new("Debounce delay (ms):");
+    debounce_spin_ = GTK_SPIN_BUTTON(gtk_spin_button_new_with_range(50, 1000, 50));
+    gtk_spin_button_set_value(debounce_spin_, 300);
+    gtk_box_append(GTK_BOX(deb_row), deb_lbl);
+    gtk_box_append(GTK_BOX(deb_row), GTK_WIDGET(debounce_spin_));
+    gtk_box_append(GTK_BOX(vbox), deb_row);
+
+    // Remember brightness
+    remember_brightness_switch_ = GTK_SWITCH(gtk_switch_new());
+    gtk_switch_set_active(remember_brightness_switch_, TRUE);
+    auto* rem_row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
+    auto* rem_lbl = gtk_label_new("Remember brightness per monitor");
+    gtk_widget_set_hexpand(rem_lbl, TRUE);
+    gtk_widget_set_halign(rem_lbl, GTK_ALIGN_START);
+    gtk_box_append(GTK_BOX(rem_row), rem_lbl);
+    gtk_box_append(GTK_BOX(rem_row), GTK_WIDGET(remember_brightness_switch_));
+    gtk_box_append(GTK_BOX(vbox), rem_row);
+
+    // Restore on startup
+    restore_brightness_switch_ = GTK_SWITCH(gtk_switch_new());
+    gtk_switch_set_active(restore_brightness_switch_, TRUE);
+    auto* rest_row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
+    auto* rest_lbl = gtk_label_new("Restore brightness on startup");
+    gtk_widget_set_hexpand(rest_lbl, TRUE);
+    gtk_widget_set_halign(rest_lbl, GTK_ALIGN_START);
+    gtk_box_append(GTK_BOX(rest_row), rest_lbl);
+    gtk_box_append(GTK_BOX(rest_row), GTK_WIDGET(restore_brightness_switch_));
+    gtk_box_append(GTK_BOX(vbox), rest_row);
+
+    gtk_notebook_append_page(notebook_, vbox, gtk_label_new("Behavior"));
+}
+
+void SettingsDialog::build_advanced_tab() {
+    auto* vbox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 10);
+    gtk_widget_set_margin_top(vbox, 10);
+    gtk_widget_set_margin_bottom(vbox, 10);
+    gtk_widget_set_margin_start(vbox, 10);
+    gtk_widget_set_margin_end(vbox, 10);
 
     // Command timeout
-    GtkWidget* hbox1 = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 5);
-    GtkWidget* label1 = gtk_label_new("Command timeout (ms):");
-    timeout_spin_.reset(gtk_spin_button_new_with_range(1000, 10000, 100));
-    gtk_spin_button_set_value(GTK_SPIN_BUTTON(timeout_spin_.get()), 5000);
-    gtk_box_pack_start(GTK_BOX(hbox1), label1, FALSE, FALSE, 0);
-    gtk_box_pack_start(GTK_BOX(hbox1), GTK_WIDGET(timeout_spin_.get()), TRUE, TRUE, 0);
-    gtk_box_pack_start(GTK_BOX(vbox), hbox1, FALSE, FALSE, 0);
+    auto* to_row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
+    auto* to_lbl = gtk_label_new("Command timeout (ms):");
+    timeout_spin_ = GTK_SPIN_BUTTON(gtk_spin_button_new_with_range(500, 30000, 100));
+    gtk_spin_button_set_value(timeout_spin_, 3000);
+    gtk_box_append(GTK_BOX(to_row), to_lbl);
+    gtk_box_append(GTK_BOX(to_row), GTK_WIDGET(timeout_spin_));
+    gtk_box_append(GTK_BOX(vbox), to_row);
 
     // Max retries
-    GtkWidget* hbox2 = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 5);
-    GtkWidget* label2 = gtk_label_new("Max retries:");
-    retries_spin_.reset(gtk_spin_button_new_with_range(1, 5, 1));
-    gtk_spin_button_set_value(GTK_SPIN_BUTTON(retries_spin_.get()), 3);
-    gtk_box_pack_start(GTK_BOX(hbox2), label2, FALSE, FALSE, 0);
-    gtk_box_pack_start(GTK_BOX(hbox2), GTK_WIDGET(retries_spin_.get()), TRUE, TRUE, 0);
-    gtk_box_pack_start(GTK_BOX(vbox), hbox2, FALSE, FALSE, 0);
+    auto* ret_row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
+    auto* ret_lbl = gtk_label_new("Max retries:");
+    retries_spin_ = GTK_SPIN_BUTTON(gtk_spin_button_new_with_range(0, 10, 1));
+    gtk_spin_button_set_value(retries_spin_, 1);
+    gtk_box_append(GTK_BOX(ret_row), ret_lbl);
+    gtk_box_append(GTK_BOX(ret_row), GTK_WIDGET(retries_spin_));
+    gtk_box_append(GTK_BOX(vbox), ret_row);
 
-    // Debug mode checkbox
-    debug_checkbox_.reset(gtk_check_button_new_with_label("Debug mode"));
-    gtk_box_pack_start(GTK_BOX(vbox), GTK_WIDGET(debug_checkbox_.get()), FALSE, FALSE, 0);
+    // Debug logging
+    debug_logging_switch_ = GTK_SWITCH(gtk_switch_new());
+    auto* dbg_row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
+    auto* dbg_lbl = gtk_label_new("Debug logging");
+    gtk_widget_set_hexpand(dbg_lbl, TRUE);
+    gtk_widget_set_halign(dbg_lbl, GTK_ALIGN_START);
+    gtk_box_append(GTK_BOX(dbg_row), dbg_lbl);
+    gtk_box_append(GTK_BOX(dbg_row), GTK_WIDGET(debug_logging_switch_));
+    gtk_box_append(GTK_BOX(vbox), dbg_row);
 
-    gtk_notebook_append_page(GTK_NOTEBOOK(notebook_.get()), vbox, gtk_label_new("Advanced"));
-
-    return true;
+    gtk_notebook_append_page(notebook_, vbox, gtk_label_new("Advanced"));
 }
 
-void SettingsDialog::on_apply(GtkButton* button, gpointer user_data) {
-    SettingsDialog* self = static_cast<SettingsDialog*>(user_data);
+void SettingsDialog::apply_settings() {
+    auto& config = config_->config_mut();
+    config.general.autostart = gtk_switch_get_active(autostart_switch_);
+    config.ui.auto_hide_delay_ms = static_cast<uint32_t>(gtk_spin_button_get_value_as_int(auto_hide_spin_));
+    config.ui.show_monitor_selector = gtk_switch_get_active(show_monitor_switch_);
+    config.ui.enable_presets = gtk_switch_get_active(enable_presets_switch_);
+    config.behavior.debounce_delay_ms = static_cast<uint32_t>(gtk_spin_button_get_value_as_int(debounce_spin_));
+    config.behavior.remember_brightness = gtk_switch_get_active(remember_brightness_switch_);
+    config.behavior.restore_brightness = gtk_switch_get_active(restore_brightness_switch_);
+    config.advanced.command_timeout_ms = static_cast<uint32_t>(gtk_spin_button_get_value_as_int(timeout_spin_));
+    config.advanced.max_retries = static_cast<uint32_t>(gtk_spin_button_get_value_as_int(retries_spin_));
+    config.advanced.debug_logging = gtk_switch_get_active(debug_logging_switch_);
 
-    if (self->apply_callback_) {
-        self->apply_callback_();
+    if (auto result = config_->save(); !result) {
+        LOG_ERROR("Failed to save config");
+    } else {
+        LOG_INFO("Settings saved");
     }
 }
 
-void SettingsDialog::on_close(GtkButton* button, gpointer user_data) {
-    SettingsDialog* self = static_cast<SettingsDialog*>(user_data);
-    self->hide();
-}
+void SettingsDialog::on_response(GtkDialog* dialog, int response_id, gpointer user_data) {
+    auto* self = static_cast<SettingsDialog*>(user_data);
 
-void SettingsDialog::on_response(GtkDialog* dialog, gint response_id, gpointer user_data) {
-    SettingsDialog* self = static_cast<SettingsDialog*>(user_data);
-
-    if (response_id == GTK_RESPONSE_APPLY) {
-        if (self->apply_callback_) {
-            self->apply_callback_();
-        }
-    } else {
-        self->hide();
+    switch (response_id) {
+        case GTK_RESPONSE_OK:
+            self->apply_settings();
+            self->hide();
+            break;
+        case GTK_RESPONSE_APPLY:
+            self->apply_settings();
+            break;
+        case GTK_RESPONSE_CANCEL:
+        default:
+            self->hide();
+            break;
     }
 }
 

@@ -1,68 +1,55 @@
 #pragma once
+/// @file tray_icon.hpp
+/// @brief System tray icon using StatusNotifierItem over D-Bus (sdbus-c++).
+///
+/// GTK4 does not include GtkStatusIcon (removed). Instead, we implement
+/// the freedesktop.org StatusNotifierItem protocol via sdbus-c++.
+/// This matches the Rust ksni approach.
 
-#include <gtk/gtk.h>
+#include <sdbus-c++/sdbus-c++.h>
+#include <cstdint>
 #include <functional>
 #include <memory>
 #include <string>
 
+namespace twinkle::ddc { class DDCManager; }
+namespace twinkle::core { class ConfigManager; }
+namespace twinkle::ui { class BrightnessPopup; }
+
 namespace twinkle::ui {
 
-/// Callback types for tray icon events
-using TrayCallback = std::function<void()>;
+/// Commands from tray menu to the main GTK thread.
+enum class TrayCommand {
+    ShowBrightness,
+    SetAllBrightness10,
+    SetAllBrightness20,
+    SetAllBrightness40,
+    SetAllBrightness60,
+    SetAllBrightness80,
+    SetAllBrightness100,
+    ShowSettings,
+    ShowAbout,
+    Quit,
+};
 
-/// System tray icon for Twinkle Linux
+/// System tray icon using SNI over D-Bus.
 class TrayIcon {
 public:
-    TrayIcon();
+    TrayIcon(std::shared_ptr<ddc::DDCManager> ddc,
+             std::shared_ptr<core::ConfigManager> cfg,
+             std::function<void(TrayCommand)> on_command);
     ~TrayIcon();
 
-    // Non-copyable but movable
     TrayIcon(const TrayIcon&) = delete;
     TrayIcon& operator=(const TrayIcon&) = delete;
-    TrayIcon(TrayIcon&&) noexcept = default;
-    TrayIcon& operator=(TrayIcon&&) noexcept = default;
-
-    /// Initialize tray icon
-    [[nodiscard]] bool initialize();
-
-    /// Show tray icon
-    void show();
-
-    /// Hide tray icon
-    void hide();
-
-    /// Set callback for brightness control click
-    void set_brightness_callback(TrayCallback callback) {
-        brightness_callback_ = std::move(callback);
-    }
-
-    /// Set callback for settings click
-    void set_settings_callback(TrayCallback callback) {
-        settings_callback_ = std::move(callback);
-    }
-
-    /// Set callback for quit
-    void set_quit_callback(TrayCallback callback) {
-        quit_callback_ = std::move(callback);
-    }
-
-    /// Update icon based on monitor state
-    void update_icon(bool monitors_available);
 
 private:
-    std::unique_ptr<GtkStatusIcon, decltype(&g_object_unref)> status_icon_;
-    TrayCallback brightness_callback_;
-    TrayCallback settings_callback_;
-    TrayCallback quit_callback_;
+    std::unique_ptr<sdbus::IConnection> connection_;
+    std::unique_ptr<sdbus::IObject> sni_object_;
+    std::function<void(TrayCommand)> on_command_;
 
-    /// Create menu
-    [[nodiscard]] GtkWidget* create_menu();
-
-    /// Handle menu item clicks
-    static void on_menu_item_click(GtkWidget* widget, gpointer data);
-
-    /// Handle tray icon click
-    static void on_tray_click(GtkStatusIcon* status_icon, gpointer user_data);
+    void register_sni();
+    void emit_signal(const char* signal_name);
 };
 
 } // namespace twinkle::ui

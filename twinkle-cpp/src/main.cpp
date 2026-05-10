@@ -1,148 +1,152 @@
-#include "twinkle/core/logger.hpp"
-#include "twinkle/core/config_manager.hpp"
+/// @file main.cpp
+/// @brief Twinkle Linux C++26 — GTK4 monitor brightness control application.
+///
+/// Entry point. Mirrors the Rust implementation's architecture:
+/// 1. Create GTK Application (unique instance via app ID)
+/// 2. On activate: create hidden parent window, DDCManager, ConfigManager
+/// 3. Build BrightnessPopup (card-based per-monitor sliders)
+/// 4. Create TrayIcon (SNI over D-Bus)
+/// 5. Process tray commands via callback
+
 #include "twinkle/ddc/ddc_manager.hpp"
-#include "twinkle/ddc/error.hpp"
-#include "twinkle/ui/tray_icon.hpp"
+#include "twinkle/ddc/monitor.hpp"
+#include "twinkle/core/config.hpp"
+#include "twinkle/core/logger.hpp"
 #include "twinkle/ui/brightness_popup.hpp"
+#include "twinkle/ui/tray_icon.hpp"
+
 #include <gtk/gtk.h>
-#include <csignal>
-#include <iostream>
 #include <memory>
+#include <functional>
 
-namespace {
+using namespace twinkle;
 
-std::unique_ptr<twinkle::core::ConfigManager> g_config;
-std::unique_ptr<twinkle::ddc::DDCManager> g_ddc_manager;
-std::unique_ptr<twinkle::ui::TrayIcon> g_tray_icon;
-std::unique_ptr<twinkle::ui::BrightnessPopup> g_brightness_popup;
+/// Application state — shared between components.
+struct AppState {
+    std::shared_ptr<ddc::DDCManager> ddc_manager;
+    std::shared_ptr<core::ConfigManager> config_manager;
+    std::unique_ptr<ui::BrightnessPopup> popup;
+    std::unique_ptr<ui::TrayIcon> tray;
+    GtkWindow* parent_window{nullptr};
+    bool initialized{false};
+};
 
-// Signal handler for graceful shutdown
-void signal_handler(int signal) {
-    LOG_INFO("Received signal {}, shutting down...", signal);
-    gtk_main_quit();
+/// Handle tray commands (runs on main thread via g_idle_add).
+static void handle_tray_command(AppState* state, ui::TrayCommand cmd) {
+    switch (cmd) {
+        case ui::TrayCommand::ShowBrightness:
+            if (state->popup) state->popup->popup();
+            break;
+        case ui::TrayCommand::SetAllBrightness10:
+            state->ddc_manager->set_all_brightness(10);
+            if (state->popup) state->popup->popup(); // refresh
+            break;
+        case ui::TrayCommand::SetAllBrightness20:
+            state->ddc_manager->set_all_brightness(20);
+            if (state->popup) state->popup->popup();
+            break;
+        case ui::TrayCommand::SetAllBrightness40:
+            state->ddc_manager->set_all_brightness(40);
+            if (state->popup) state->popup->popup();
+            break;
+        case ui::TrayCommand::SetAllBrightness60:
+            state->ddc_manager->set_all_brightness(60);
+            if (state->popup) state->popup->popup();
+            break;
+        case ui::TrayCommand::SetAllBrightness80:
+            state->ddc_manager->set_all_brightness(80);
+            if (state->popup) state->popup->popup();
+            break;
+        case ui::TrayCommand::SetAllBrightness100:
+            state->ddc_manager->set_all_brightness(100);
+            if (state->popup) state->popup->popup();
+            break;
+        case ui::TrayCommand::ShowSettings:
+            LOG_INFO("Show settings requested");
+            break;
+        case ui::TrayCommand::ShowAbout:
+            LOG_INFO("Show about requested");
+            break;
+        case ui::TrayCommand::Quit:
+            g_application_quit(G_APPLICATION(gtk_window_get_application(state->parent_window)));
+            break;
+    }
 }
 
-// Initialize application
-bool initialize_application() {
-    // Initialize logger
-    auto& logger = twinkle::core::Logger::instance();
-    logger.initialize("/tmp/twinkle-linux.log", twinkle::core::LogLevel::Info);
+/// Application activate callback — builds all UI.
+static void on_activate(GtkApplication* app, gpointer user_data) {
+    auto* state = static_cast<AppState*>(user_data);
+    LOG_INFO("Application activated");
 
-    LOG_INFO("Twinkle Linux starting...");
+    // Create hidden parent window for popover/dialog parenting
+    auto* window = gtk_application_window_new(app);
+    gtk_window_set_title(GTK_WINDOW(window), "Twinkle Linux");
+    gtk_window_set_default_size(GTK_WINDOW(window), 1, 1);
+    gtk_window_set_decorated(GTK_WINDOW(window), FALSE);
+    state->parent_window = GTK_WINDOW(window);
 
-    // Initialize GTK
-    if (!gtk_init_check(nullptr, nullptr)) {
-        LOG_ERROR("Failed to initialize GTK");
-        return false;
+    // Initialize ConfigManager
+    state->config_manager = std::make_shared<core::ConfigManager>();
+    if (auto result = state->config_manager->load(); !result) {
+        LOG_WARN("Failed to load config, using defaults");
     }
 
-    // Load configuration
-    g_config = std::make_unique<twinkle::core::ConfigManager>();
-    if (auto result = g_config->load(); !result.has_value()) {
-        LOG_WARNING("Failed to load config: {}. Using defaults.", result.error());
-        g_config->reset_to_defaults();
+    // Initialize DDCManager
+    state->ddc_manager = std::make_shared<ddc::DDCManager>();
+    auto init_result = state->ddc_manager->initialize();
+    if (!init_result) {
+        LOG_ERROR("DDC init error");
+    } else if (!*init_result) {
+        LOG_WARN("No monitors detected");
+    } else {
+        LOG_INFO("DDC initialized successfully");
     }
 
-    // Initialize DDC manager
-    g_ddc_manager = std::make_unique<twinkle::ddc::DDCManager>();
-    if (auto result = g_ddc_manager->initialize(); !result.has_value()) {
-        LOG_ERROR("Failed to initialize DDC manager: {}", to_string(result.error()));
-        return false;
-    }
+    // Create BrightnessPopup
+    state->popup = std::make_unique<ui::BrightnessPopup>(
+        state->parent_window, state->ddc_manager, state->config_manager);
+    LOG_INFO("BrightnessPopup created");
 
-    // Initialize tray icon
-    g_tray_icon = std::make_unique<twinkle::ui::TrayIcon>();
-    if (!g_tray_icon->initialize()) {
-        LOG_ERROR("Failed to initialize tray icon");
-        return false;
-    }
+    // Create TrayIcon with command callback
+    auto* state_ptr = state;
+    state->tray = std::make_unique<ui::TrayIcon>(
+        state->ddc_manager,
+        state->config_manager,
+        [state_ptr](ui::TrayCommand cmd) {
+            // Dispatch to main thread via g_idle_add
+            auto* cmd_ptr = new ui::TrayCommand(cmd);
+            g_idle_add_full(G_PRIORITY_HIGH_IDLE,
+                [](gpointer data) -> gboolean {
+                    auto* c = static_cast<std::pair<AppState*, ui::TrayCommand>*>(data);
+                    handle_tray_command(c->first, c->second);
+                    delete c;
+                    return G_SOURCE_REMOVE;
+                },
+                new std::pair{state_ptr, cmd},
+                [](gpointer data) { delete static_cast<std::pair<AppState*, ui::TrayCommand>*>(data); });
+        });
+    LOG_INFO("TrayIcon created");
 
-    // Initialize brightness popup
-    g_brightness_popup = std::make_unique<twinkle::ui::BrightnessPopup>();
-    if (!g_brightness_popup->initialize()) {
-        LOG_ERROR("Failed to initialize brightness popup");
-        return false;
-    }
-
-    // Connect callbacks
-    g_tray_icon->set_brightness_callback([]() {
-        g_brightness_popup->show();
-    });
-
-    g_tray_icon->set_quit_callback([]() {
-        LOG_INFO("Quit requested");
-        gtk_main_quit();
-    });
-
-    g_brightness_popup->set_brightness_callback([](uint8_t brightness) {
-        const auto& monitors = g_ddc_manager->monitors();
-        if (!monitors.empty()) {
-            if (auto result = g_ddc_manager->set_brightness(monitors[0].bus(), brightness);
-                !result.has_value()) {
-                LOG_ERROR("Failed to set brightness: {}", to_string(result.error()));
-            }
-        }
-    });
-
-    // Show tray icon
-    g_tray_icon->show();
-
-    LOG_INFO("Application initialized successfully");
-    return true;
+    state->initialized = true;
+    LOG_INFO("Initialization complete");
 }
-
-// Cleanup application
-void cleanup_application() {
-    LOG_INFO("Cleaning up...");
-
-    g_brightness_popup.reset();
-    g_tray_icon.reset();
-    g_ddc_manager.reset();
-
-    // Save configuration
-    if (g_config) {
-        if (auto result = g_config->save(); !result.has_value()) {
-            LOG_ERROR("Failed to save config: {}", result.error());
-        }
-    }
-
-    LOG_INFO("Twinkle Linux shut down");
-}
-
-} // anonymous namespace
 
 int main(int argc, char* argv[]) {
-    // Parse command line arguments
-    for (int i = 1; i < argc; ++i) {
-        std::string_view arg(argv[i]);
-        if (arg == "--version" || arg == "-v") {
-            std::cout << "Twinkle Linux v1.0.0\n";
-            return 0;
-        } else if (arg == "--help" || arg == "-h") {
-            std::cout << "Twinkle Linux - GUI application for controlling external monitor brightness\n"
-                      << "\nUsage: twinkle-linux [OPTIONS]\n"
-                      << "\nOptions:\n"
-                      << "  -h, --help     Show this help message\n"
-                      << "  -v, --version  Show version information\n";
-            return 0;
-        }
-    }
+    core::Logger::instance().initialize("", core::LogLevel::Info);
+    LOG_INFO("Starting Twinkle Linux C++ v0.1.0");
 
-    // Setup signal handlers
-    std::signal(SIGINT, signal_handler);
-    std::signal(SIGTERM, signal_handler);
+    // Create GTK Application with unique ID (single instance)
+    auto* app = gtk_application_new(
+        "com.github.ebarczynski.TwinkleLinux",
+        G_APPLICATION_FLAGS_NONE);
 
-    // Initialize application
-    if (!initialize_application()) {
-        std::cerr << "Failed to initialize application\n";
-        return 1;
-    }
+    AppState state;
 
-    // Run GTK main loop
-    gtk_main();
+    g_signal_connect(app, "activate", G_CALLBACK(on_activate), &state);
 
-    // Cleanup
-    cleanup_application();
+    auto status = g_application_run(G_APPLICATION(app), argc, argv);
+    g_object_unref(app);
 
-    return 0;
+    LOG_INFO("Twinkle Linux exited with code {}", status);
+    return status;
 }
