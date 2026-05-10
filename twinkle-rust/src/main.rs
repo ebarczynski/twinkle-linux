@@ -1,5 +1,7 @@
 //! Twinkle Linux - GUI application for controlling external monitor brightness via DDC/CI on Linux.
 
+#![allow(dead_code)]
+
 mod core;
 mod ddc;
 mod ui;
@@ -11,8 +13,8 @@ use crate::ui::brightness_popup::BrightnessPopup;
 use crate::ui::tray_icon::TrayIcon;
 use gtk4::prelude::*;
 use gtk4::{Application, ApplicationWindow};
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use tokio::sync::Mutex as TokioMutex;
 
 struct AppState {
@@ -42,6 +44,7 @@ fn build_ui(app: &Application, state: AppState) {
     // approach: the popover will be parented to the window, and we show/hide
     // the window along with the popover as needed.
 
+    #[allow(clippy::arc_with_non_send_sync)]
     let popup_arc: Arc<std::sync::Mutex<Option<BrightnessPopup>>> =
         Arc::new(std::sync::Mutex::new(None));
 
@@ -71,18 +74,19 @@ fn build_ui(app: &Application, state: AppState) {
         };
 
         tracing::info!("Creating BrightnessPopup...");
-        let popup = BrightnessPopup::new(
-            &window_clone,
-            ddc_manager.clone(),
-            config_manager.clone(),
-        )
-        .await;
+        let popup =
+            BrightnessPopup::new(&window_clone, ddc_manager.clone(), config_manager.clone()).await;
         // No separate refresh_monitors() call — popup() rebuilds cards each time
         *popup_arc.lock().unwrap() = Some(popup);
         tracing::info!("BrightnessPopup created");
 
         tracing::info!("Creating TrayIcon...");
-        let _tray = TrayIcon::new(&app_clone, popup_arc.clone(), config_manager.clone(), ddc_manager.clone());
+        let _tray = TrayIcon::new(
+            &app_clone,
+            popup_arc.clone(),
+            config_manager.clone(),
+            ddc_manager.clone(),
+        );
         tracing::info!("TrayIcon created, icon should now be visible in system tray");
 
         // Keep tray alive for the app lifetime

@@ -219,7 +219,11 @@ impl TrayIcon {
                             let monitors = ddc.get_monitors().await;
                             for m in &monitors {
                                 if let Err(e) = ddc.set_brightness(&m.unique_id(), value).await {
-                                    tracing::warn!("Quick set failed on {}: {}", m.display_name(), e);
+                                    tracing::warn!(
+                                        "Quick set failed on {}: {}",
+                                        m.display_name(),
+                                        e
+                                    );
                                 }
                             }
                         });
@@ -231,11 +235,11 @@ impl TrayIcon {
                             gtk4::glib::spawn_future_local({
                                 let config = config_clone.clone();
                                 async move {
-                                    let dialog = crate::ui::widgets::settings_dialog::SettingsDialog::new(
-                                        &parent,
-                                        config,
-                                    )
-                                    .await;
+                                    let dialog =
+                                        crate::ui::widgets::settings_dialog::SettingsDialog::new(
+                                            &parent, config,
+                                        )
+                                        .await;
                                     dialog.present();
                                 }
                             });

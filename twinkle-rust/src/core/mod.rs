@@ -3,7 +3,5 @@
 pub mod config;
 
 // Re-exports for convenience
-pub use config::{
-    AppConfig, AdvancedConfig, BehaviorConfig, ConfigManager, ConfigError, ConfigResult,
-    GeneralConfig, MonitorConfig, UIConfig,
-};
+#[allow(unused_imports)]
+pub use config::ConfigManager;

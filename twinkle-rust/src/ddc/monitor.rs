@@ -234,16 +234,21 @@ impl MonitorDetector {
         drop(executor);
         tracing::info!("MonitorDetector::detect_monitors() - Released executor lock");
 
-        tracing::info!("MonitorDetector::detect_monitors() - Command result: success={}, stdout_len={}",
-            result.success, result.stdout.len());
+        tracing::info!(
+            "MonitorDetector::detect_monitors() - Command result: success={}, stdout_len={}",
+            result.success,
+            result.stdout.len()
+        );
 
         if !result.success {
-            return Err(DDCError::CommandExecution(crate::ddc::error::CommandExecutionError {
-                command: result.command,
-                exit_code: result.return_code,
-                stderr: result.stderr,
-                stdout: result.stdout,
-            }));
+            return Err(DDCError::CommandExecution(
+                crate::ddc::error::CommandExecutionError {
+                    command: result.command,
+                    exit_code: result.return_code,
+                    stderr: result.stderr,
+                    stdout: result.stdout,
+                },
+            ));
         }
 
         tracing::info!("MonitorDetector::detect_monitors() - Parsing output");
@@ -286,7 +291,11 @@ impl MonitorDetector {
                 .and_then(|s| s.trim().parse().ok())
                 .unwrap_or(100);
 
-            tracing::info!("Found internal backlight: {} (max={})", name, max_brightness);
+            tracing::info!(
+                "Found internal backlight: {} (max={})",
+                name,
+                max_brightness
+            );
 
             let mut monitor = Monitor::new_internal(&name, &path);
             monitor.capabilities.max_brightness = max_brightness;
@@ -296,7 +305,10 @@ impl MonitorDetector {
 
     /// Parse the output from `ddcutil detect` (full output, not --brief).
     async fn _parse_detect_output(&self, output: &str) -> DDCResult<Vec<Monitor>> {
-        tracing::info!("_parse_detect_output() - Starting to parse {} lines", output.lines().count());
+        tracing::info!(
+            "_parse_detect_output() - Starting to parse {} lines",
+            output.lines().count()
+        );
         let mut monitors = Vec::new();
 
         // Regex patterns for full ddcutil detect output (no --brief).
@@ -322,8 +334,8 @@ impl MonitorDetector {
                 let mut monitor = Monitor::new(bus);
 
                 // Look for monitor info in following lines (up to 20 lines ahead)
-                for j in (i + 1)..std::cmp::min(i + 20, lines.len()) {
-                    let subj = lines[j];
+                for line in lines.iter().take(i + 20).skip(i + 1) {
+                    let subj = *line;
 
                     // Stop if we hit the next display entry
                     if subj.starts_with("Display ") {
@@ -366,7 +378,10 @@ impl MonitorDetector {
                     }
                 }
 
-                tracing::info!("_parse_detect_output() - Getting capabilities for bus {}", bus);
+                tracing::info!(
+                    "_parse_detect_output() - Getting capabilities for bus {}",
+                    bus
+                );
                 // Get capabilities for this monitor.
                 // If capabilities fail, the monitor likely doesn't support DDC/CI
                 // (e.g. internal laptop panels detected on I2C). Skip it — internal
@@ -381,7 +396,8 @@ impl MonitorDetector {
                             "_parse_detect_output() - Skipping monitor on bus {}: \
                              capabilities query failed ({}) — likely internal panel, \
                              use backlight instead",
-                            bus, e
+                            bus,
+                            e
                         );
                         i += 1;
                         continue;
@@ -390,42 +406,69 @@ impl MonitorDetector {
 
                 let display_name = monitor.display_name();
                 monitors.push(monitor);
-                tracing::info!("_parse_detect_output() - Added monitor {} to list (total: {})",
-                    display_name, monitors.len());
+                tracing::info!(
+                    "_parse_detect_output() - Added monitor {} to list (total: {})",
+                    display_name,
+                    monitors.len()
+                );
             }
 
             i += 1;
         }
 
-        tracing::info!("_parse_detect_output() - Parsing complete, found {} monitors", monitors.len());
+        tracing::info!(
+            "_parse_detect_output() - Parsing complete, found {} monitors",
+            monitors.len()
+        );
         Ok(monitors)
     }
 
     /// Get capabilities for a specific monitor.
     async fn _get_monitor_capabilities(&self, bus: i32) -> DDCResult<MonitorCapabilities> {
-        tracing::info!("_get_monitor_capabilities() - Acquiring executor lock for bus {}", bus);
+        tracing::info!(
+            "_get_monitor_capabilities() - Acquiring executor lock for bus {}",
+            bus
+        );
         let mut executor = self.executor.lock().await;
-        tracing::info!("_get_monitor_capabilities() - Calling get_capabilities for bus {}", bus);
+        tracing::info!(
+            "_get_monitor_capabilities() - Calling get_capabilities for bus {}",
+            bus
+        );
         let result = executor.get_capabilities(bus).await?;
-        tracing::info!("_get_monitor_capabilities() - get_capabilities completed for bus {}, success={}",
-            bus, result.success);
+        tracing::info!(
+            "_get_monitor_capabilities() - get_capabilities completed for bus {}, success={}",
+            bus,
+            result.success
+        );
 
         // Release the lock before parsing
         drop(executor);
-        tracing::info!("_get_monitor_capabilities() - Released executor lock for bus {}", bus);
+        tracing::info!(
+            "_get_monitor_capabilities() - Released executor lock for bus {}",
+            bus
+        );
 
         if !result.success {
-            tracing::warn!("_get_monitor_capabilities() - get_capabilities failed for bus {}, using defaults", bus);
+            tracing::warn!(
+                "_get_monitor_capabilities() - get_capabilities failed for bus {}, using defaults",
+                bus
+            );
             return Ok(MonitorCapabilities::default());
         }
 
-        tracing::info!("_get_monitor_capabilities() - Parsing capabilities output for bus {}", bus);
+        tracing::info!(
+            "_get_monitor_capabilities() - Parsing capabilities output for bus {}",
+            bus
+        );
         self._parse_capabilities_output(&result.stdout)
     }
 
     /// Parse the capabilities output.
     fn _parse_capabilities_output(&self, output: &str) -> DDCResult<MonitorCapabilities> {
-        tracing::info!("_parse_capabilities_output() - Parsing capabilities from {} bytes", output.len());
+        tracing::info!(
+            "_parse_capabilities_output() - Parsing capabilities from {} bytes",
+            output.len()
+        );
         let mut capabilities = MonitorCapabilities::default();
 
         // Parse supported VCP codes.
@@ -442,12 +485,16 @@ impl MonitorDetector {
                 }
             }
         }
-        tracing::info!("_parse_capabilities_output() - Found {} VCP codes", vcp_count);
+        tracing::info!(
+            "_parse_capabilities_output() - Found {} VCP codes",
+            vcp_count
+        );
 
         // Check for specific capabilities based on VCP codes
         capabilities.supports_input_source = capabilities.supports_vcp(0x60);
         capabilities.supports_power_control = capabilities.supports_vcp(0xD6);
-        capabilities.supports_audio = capabilities.supports_vcp(0x62) || capabilities.supports_vcp(0x8D);
+        capabilities.supports_audio =
+            capabilities.supports_vcp(0x62) || capabilities.supports_vcp(0x8D);
 
         // Get max brightness and contrast from VCP info if available
         if let Some(info) = get_vcp_info(0x10) {
@@ -478,10 +525,14 @@ mod tests {
 
     #[test]
     fn test_monitor_new_internal() {
-        let monitor = Monitor::new_internal("intel_backlight", "/sys/class/backlight/intel_backlight");
+        let monitor =
+            Monitor::new_internal("intel_backlight", "/sys/class/backlight/intel_backlight");
         assert_eq!(monitor.model, "intel_backlight");
         assert_eq!(monitor.monitor_type, MonitorType::Internal);
-        assert_eq!(monitor.backlight_path, Some("/sys/class/backlight/intel_backlight".to_string()));
+        assert_eq!(
+            monitor.backlight_path,
+            Some("/sys/class/backlight/intel_backlight".to_string())
+        );
     }
 
     #[test]
@@ -497,7 +548,8 @@ mod tests {
 
     #[test]
     fn test_monitor_display_name_internal() {
-        let monitor = Monitor::new_internal("intel_backlight", "/sys/class/backlight/intel_backlight");
+        let monitor =
+            Monitor::new_internal("intel_backlight", "/sys/class/backlight/intel_backlight");
         assert_eq!(monitor.display_name(), "intel_backlight (Internal)");
     }
 
@@ -514,7 +566,8 @@ mod tests {
 
     #[test]
     fn test_monitor_unique_id_internal() {
-        let monitor = Monitor::new_internal("intel_backlight", "/sys/class/backlight/intel_backlight");
+        let monitor =
+            Monitor::new_internal("intel_backlight", "/sys/class/backlight/intel_backlight");
         assert_eq!(monitor.unique_id(), "internal_intel_backlight");
     }
 

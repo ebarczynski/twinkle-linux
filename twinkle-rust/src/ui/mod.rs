@@ -5,5 +5,3 @@ pub mod tray_icon;
 pub mod widgets;
 
 // Re-exports for convenience
-pub use brightness_popup::BrightnessPopup;
-pub use tray_icon::TrayIcon;

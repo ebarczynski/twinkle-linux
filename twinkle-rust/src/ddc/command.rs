@@ -100,18 +100,14 @@ impl CommandExecutor {
     /// This is an async function that uses timeout to prevent blocking.
     pub async fn check_ddcutil_available(&mut self) -> bool {
         tracing::info!("check_ddcutil_available() - Starting ddcutil --version command");
-        
+
         let timeout_duration = Duration::from_secs_f64(self.timeout_secs);
-        
+
         let result = tokio_timeout(timeout_duration, async {
-            tokio::task::spawn_blocking(|| {
-                Command::new("ddcutil")
-                    .arg("--version")
-                    .output()
-            })
-            .await
-            .map_err(|e| DDCError::Other(format!("Task join error: {}", e)))?
-            .map_err(|e| DDCError::Io(e))
+            tokio::task::spawn_blocking(|| Command::new("ddcutil").arg("--version").output())
+                .await
+                .map_err(|e| DDCError::Other(format!("Task join error: {}", e)))?
+                .map_err(DDCError::Io)
         })
         .await;
 
@@ -120,10 +116,16 @@ impl CommandExecutor {
             Ok(Ok(output)) => {
                 if output.status.success() {
                     self.ddcutil_path = Some("ddcutil".to_string());
-                    tracing::info!("ddcutil found: {}", String::from_utf8_lossy(&output.stdout).trim());
+                    tracing::info!(
+                        "ddcutil found: {}",
+                        String::from_utf8_lossy(&output.stdout).trim()
+                    );
                     true
                 } else {
-                    tracing::warn!("ddcutil --version failed with exit code {:?}", output.status.code());
+                    tracing::warn!(
+                        "ddcutil --version failed with exit code {:?}",
+                        output.status.code()
+                    );
                     false
                 }
             }
@@ -145,7 +147,10 @@ impl CommandExecutor {
         if self.ddcutil_path.is_none() && !self.check_ddcutil_available().await {
             return Err(DDCError::DDCNotAvailable);
         }
-        Ok(self.ddcutil_path.clone().unwrap_or_else(|| "ddcutil".to_string()))
+        Ok(self
+            .ddcutil_path
+            .clone()
+            .unwrap_or_else(|| "ddcutil".to_string()))
     }
 
     /// Execute a ddcutil command with timeout and retry logic.
@@ -153,7 +158,11 @@ impl CommandExecutor {
         let ddcutil_path = self.get_ddcutil_path().await?;
         let command_str = format!("{} {}", ddcutil_path, args.join(" "));
 
-        tracing::info!("execute() - Starting command: {} (timeout: {}s)", command_str, self.timeout_secs);
+        tracing::info!(
+            "execute() - Starting command: {} (timeout: {}s)",
+            command_str,
+            self.timeout_secs
+        );
         let mut last_error = None;
         let mut delay = self.retry_delay_secs;
 
@@ -164,10 +173,17 @@ impl CommandExecutor {
                 delay *= self.retry_backoff;
             }
 
-            tracing::info!("execute() - Attempt {} for command: {}", attempt + 1, command_str);
+            tracing::info!(
+                "execute() - Attempt {} for command: {}",
+                attempt + 1,
+                command_str
+            );
             match self._execute_single(&ddcutil_path, args).await {
                 Ok(result) => {
-                    tracing::info!("execute() - Command completed with success={}", result.success);
+                    tracing::info!(
+                        "execute() - Command completed with success={}",
+                        result.success
+                    );
                     if result.success {
                         return Ok(result);
                     }
@@ -219,14 +235,10 @@ impl CommandExecutor {
         let command_str = format!("{} {}", ddcutil_path, args.join(" "));
 
         let output = tokio_timeout(timeout_duration, async {
-            tokio::task::spawn_blocking(move || {
-                Command::new(&ddcutil_path)
-                    .args(&args)
-                    .output()
-            })
-            .await
-            .map_err(|e| DDCError::Other(format!("Task join error: {}", e)))?
-            .map_err(|e| DDCError::Io(e))
+            tokio::task::spawn_blocking(move || Command::new(&ddcutil_path).args(&args).output())
+                .await
+                .map_err(|e| DDCError::Other(format!("Task join error: {}", e)))?
+                .map_err(DDCError::Io)
         })
         .await
         .map_err(|_| DDCError::Timeout(self.timeout_secs))??;
@@ -248,7 +260,11 @@ impl CommandExecutor {
 
     /// Check if a command result indicates a recoverable error.
     fn _is_recoverable(&self, result: &CommandResult) -> bool {
-        let combined = format!("{} {}", result.stderr.to_lowercase(), result.stdout.to_lowercase());
+        let combined = format!(
+            "{} {}",
+            result.stderr.to_lowercase(),
+            result.stdout.to_lowercase()
+        );
         // Check for timeout-related errors
         if combined.contains("timeout") || combined.contains("timed out") {
             return true;
@@ -258,7 +274,10 @@ impl CommandExecutor {
             return true;
         }
         // Check for common ddcutil transient errors written to stdout
-        if combined.contains("partial") || combined.contains("failed to read") || combined.contains("communication failed") {
+        if combined.contains("partial")
+            || combined.contains("failed to read")
+            || combined.contains("communication failed")
+        {
             return true;
         }
         false
@@ -266,7 +285,13 @@ impl CommandExecutor {
 
     /// Get a VCP value from a monitor.
     pub async fn get_vcp(&mut self, bus: i32, vcp_code: u8) -> DDCResult<CommandResult> {
-        let args = &["--sleep-multiplier", "0.5", "getvcp", &format!("--bus={}", bus), &format!("0x{:02X}", vcp_code)];
+        let args = &[
+            "--sleep-multiplier",
+            "0.5",
+            "getvcp",
+            &format!("--bus={}", bus),
+            &format!("0x{:02X}", vcp_code),
+        ];
         let mut result = self.execute(args).await?;
 
         // Parse the value from output
@@ -278,9 +303,15 @@ impl CommandExecutor {
     }
 
     /// Set a VCP value on a monitor.
-    pub async fn set_vcp(&mut self, bus: i32, vcp_code: u8, value: u16) -> DDCResult<CommandResult> {
+    pub async fn set_vcp(
+        &mut self,
+        bus: i32,
+        vcp_code: u8,
+        value: u16,
+    ) -> DDCResult<CommandResult> {
         let args = &[
-            "--sleep-multiplier", "0.5",
+            "--sleep-multiplier",
+            "0.5",
             "setvcp",
             &format!("--bus={}", bus),
             &format!("0x{:02X}", vcp_code),
@@ -306,13 +337,25 @@ impl CommandExecutor {
 
     /// Get EDID data for a monitor.
     pub async fn get_edid(&mut self, bus: i32) -> DDCResult<CommandResult> {
-        let args = &["--sleep-multiplier", "0.5", "getedid", "--bus", &format!("{}", bus)];
+        let args = &[
+            "--sleep-multiplier",
+            "0.5",
+            "getedid",
+            "--bus",
+            &format!("{}", bus),
+        ];
         self.execute(args).await
     }
 
     /// Get capabilities for a monitor.
     pub async fn get_capabilities(&mut self, bus: i32) -> DDCResult<CommandResult> {
-        let args = &["--sleep-multiplier", "0.5", "capabilities", "--bus", &format!("{}", bus)];
+        let args = &[
+            "--sleep-multiplier",
+            "0.5",
+            "capabilities",
+            "--bus",
+            &format!("{}", bus),
+        ];
         self.execute(args).await
     }
 

@@ -3,8 +3,8 @@
 use gtk4::glib;
 use gtk4::prelude::*;
 use gtk4::{Adjustment, Box, Label, Orientation, Scale, SpinButton};
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use tokio::sync::Mutex;
 
 /// Brightness slider widget.
@@ -145,10 +145,11 @@ impl BrightnessSlider {
 
             // Set a new 300ms debounce timer
             let cb = callback_clone.clone();
-            let new_id = glib::timeout_add_local(std::time::Duration::from_millis(300), move || {
-                cb(value);
-                glib::ControlFlow::Break
-            });
+            let new_id =
+                glib::timeout_add_local(std::time::Duration::from_millis(300), move || {
+                    cb(value);
+                    glib::ControlFlow::Break
+                });
 
             // Store the raw source ID (u32)
             // SourceId doesn't expose as_raw(), but we can get it via IntoGlib

@@ -6,15 +6,12 @@
 //! - Configuration management
 //! - System tray integration
 
+#![allow(dead_code)]
+
 pub mod core;
 pub mod ddc;
 pub mod ui;
 pub mod utils;
-
-// Re-exports for convenience
-pub use core::{AppConfig, ConfigManager};
-pub use ddc::{DDCError, DDCManager, Monitor};
-pub use ui::{BrightnessPopup, TrayIcon};
 
 /// Library version.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");

@@ -28,7 +28,7 @@ pub enum ConfigError {
 }
 
 /// Application configuration.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct AppConfig {
     /// General settings
     pub general: GeneralConfig,
@@ -40,18 +40,6 @@ pub struct AppConfig {
     pub monitors: Vec<MonitorConfig>,
     /// Advanced settings
     pub advanced: AdvancedConfig,
-}
-
-impl Default for AppConfig {
-    fn default() -> Self {
-        Self {
-            general: GeneralConfig::default(),
-            ui: UIConfig::default(),
-            behavior: BehaviorConfig::default(),
-            monitors: Vec::new(),
-            advanced: AdvancedConfig::default(),
-        }
-    }
 }
 
 /// General settings.
@@ -264,15 +252,25 @@ impl ConfigManager {
 
     /// Get the XDG config directory.
     fn get_config_dir() -> ConfigResult<PathBuf> {
-        let base = directories::BaseDirs::new()
-            .ok_or_else(|| ConfigError::InvalidValue("Failed to get base directories".to_string()))?;
+        let base = directories::BaseDirs::new().ok_or_else(|| {
+            ConfigError::InvalidValue("Failed to get base directories".to_string())
+        })?;
 
         Ok(base.config_dir().to_path_buf())
     }
 
     /// Get or create monitor config for a monitor.
-    pub fn get_or_create_monitor_config(&mut self, unique_id: &str, display_name: &str) -> &mut MonitorConfig {
-        if let Some(pos) = self.config.monitors.iter().position(|m| m.unique_id == unique_id) {
+    pub fn get_or_create_monitor_config(
+        &mut self,
+        unique_id: &str,
+        display_name: &str,
+    ) -> &mut MonitorConfig {
+        if let Some(pos) = self
+            .config
+            .monitors
+            .iter()
+            .position(|m| m.unique_id == unique_id)
+        {
             &mut self.config.monitors[pos]
         } else {
             self.modified = true;
@@ -286,7 +284,12 @@ impl ConfigManager {
 
     /// Remove monitor config for a disconnected monitor.
     pub fn remove_monitor_config(&mut self, unique_id: &str) {
-        if let Some(pos) = self.config.monitors.iter().position(|m| m.unique_id == unique_id) {
+        if let Some(pos) = self
+            .config
+            .monitors
+            .iter()
+            .position(|m| m.unique_id == unique_id)
+        {
             self.config.monitors.remove(pos);
             self.modified = true;
         }

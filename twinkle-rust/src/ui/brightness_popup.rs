@@ -1,19 +1,18 @@
 //! Brightness popup window with per-monitor card-based layout.
 
 use crate::core::config::ConfigManager;
-use crate::ddc::DDCManager;
 use crate::ddc::monitor::Monitor;
+use crate::ddc::DDCManager;
 use gtk4::glib;
 use gtk4::prelude::*;
-use gtk4::{
-    Adjustment, Box, Button, Label, Orientation, Scale, Window,
-};
-use std::sync::Arc;
+use gtk4::{Adjustment, Box, Button, Label, Orientation, Scale, Window};
 use std::sync::atomic::{AtomicBool, AtomicU16, Ordering};
+use std::sync::Arc;
 use std::sync::Mutex as StdMutex;
 use tokio::sync::Mutex;
 
 /// A single monitor card with its own slider.
+#[allow(dead_code)]
 struct MonitorCard {
     monitor_id: String,
     name_label: Label,
@@ -46,24 +45,23 @@ fn connect_slider_debounced(
 
         // Cancel old debounce timer
         if let Some(id) = deb.lock().ok().and_then(|mut id| id.take()) {
-            unsafe { gtk4::glib::ffi::g_source_remove(id); }
+            unsafe {
+                gtk4::glib::ffi::g_source_remove(id);
+            }
         }
 
         // Set new debounce timer (300ms)
         let send = send.clone();
         let deb2 = deb.clone();
         let pv2 = pv.clone();
-        let new_id = glib::timeout_add_local(
-            std::time::Duration::from_millis(300),
-            move || {
-                let val = pv2.load(Ordering::SeqCst);
-                send(val);
-                if let Ok(mut id) = deb2.lock() {
-                    *id = None;
-                }
-                glib::ControlFlow::Break
-            },
-        );
+        let new_id = glib::timeout_add_local(std::time::Duration::from_millis(300), move || {
+            let val = pv2.load(Ordering::SeqCst);
+            send(val);
+            if let Ok(mut id) = deb2.lock() {
+                *id = None;
+            }
+            glib::ControlFlow::Break
+        });
         let raw_id: u32 = unsafe { std::mem::transmute(new_id) };
         if let Ok(mut id) = deb.lock() {
             *id = Some(raw_id);
@@ -72,6 +70,7 @@ fn connect_slider_debounced(
 }
 
 /// Brightness popup window.
+#[allow(dead_code)]
 pub struct BrightnessPopup {
     window: Window,
     cards_container: Box,
@@ -169,9 +168,7 @@ impl BrightnessPopup {
         main_box.append(&override_row);
 
         // Separator
-        let sep = Box::builder()
-            .css_classes(["separator"])
-            .build();
+        let sep = Box::builder().css_classes(["separator"]).build();
         main_box.append(&sep);
 
         // Bottom toolbar — settings only
@@ -264,16 +261,22 @@ impl BrightnessPopup {
             .spacing(8)
             .build();
 
-        let icon = Label::new(Some(if monitor.monitor_type == crate::ddc::monitor::MonitorType::Internal { "\u{1F30D}" } else { "\u{1F5A5}" }));
+        let icon = Label::new(Some(
+            if monitor.monitor_type == crate::ddc::monitor::MonitorType::Internal {
+                "\u{1F30D}"
+            } else {
+                "\u{1F5A5}"
+            },
+        ));
         icon.set_css_classes(&["monitor-icon"]);
         let name_label = Label::builder()
-            .label(&monitor.display_name())
+            .label(monitor.display_name())
             .css_classes(["monitor-name"])
             .hexpand(true)
             .xalign(0.0)
             .build();
         let value_label = Label::builder()
-            .label(&format!("{}%", brightness))
+            .label(format!("{}%", brightness))
             .css_classes(["brightness-value"])
             .build();
 
@@ -337,7 +340,8 @@ impl BrightnessPopup {
             }
 
             for monitor in &monitors {
-                let brightness = ddc_manager.get_brightness(&monitor.unique_id())
+                let brightness = ddc_manager
+                    .get_brightness(&monitor.unique_id())
                     .await
                     .unwrap_or(50);
 
@@ -348,7 +352,7 @@ impl BrightnessPopup {
                 let monitor_id = monitor.unique_id();
                 let suppress = Arc::new(AtomicBool::new(false));
                 let value_label = Label::builder()
-                    .label(&format!("{}%", brightness))
+                    .label(format!("{}%", brightness))
                     .css_classes(["brightness-value"])
                     .build();
 
@@ -356,22 +360,17 @@ impl BrightnessPopup {
                 // We need to find the brightness-value label in the card
                 // Simpler: just create a hidden label to track and update the visible one
                 let visible_label = find_brightness_label(&card_widget);
-                let vl = visible_label.unwrap_or_else(|| value_label);
+                let vl = visible_label.unwrap_or(value_label);
 
-                connect_slider_debounced(
-                    &adjustment,
-                    vl,
-                    suppress,
-                    move |value| {
-                        let ddc_manager = ddc_mgr.clone();
-                        let monitor_id = monitor_id.clone();
-                        glib::spawn_future_local(async move {
-                            if let Err(e) = ddc_manager.set_brightness(&monitor_id, value).await {
-                                tracing::error!("Failed to set brightness: {}", e);
-                            }
-                        });
-                    },
-                );
+                connect_slider_debounced(&adjustment, vl, suppress, move |value| {
+                    let ddc_manager = ddc_mgr.clone();
+                    let monitor_id = monitor_id.clone();
+                    glib::spawn_future_local(async move {
+                        if let Err(e) = ddc_manager.set_brightness(&monitor_id, value).await {
+                            tracing::error!("Failed to set brightness: {}", e);
+                        }
+                    });
+                });
 
                 cards_container.append(&card_widget);
             }
@@ -386,8 +385,10 @@ impl BrightnessPopup {
                         count += 1;
                     }
                 }
-                if count > 0 {
-                    let avg = sum / count;
+                if let Some(avg) = count
+                    .checked_div(1)
+                    .and_then(|_| (count > 0).then_some(sum / count))
+                {
                     override_suppress.store(true, Ordering::SeqCst);
                     override_adjustment.set_value(avg as f64);
                     override_value_label.set_label(&format!("{}%", avg));

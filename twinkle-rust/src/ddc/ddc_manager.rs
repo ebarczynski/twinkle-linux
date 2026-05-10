@@ -1,21 +1,15 @@
 //! DDC/CI Manager - Main interface for DDC/CI operations.
 
 use crate::ddc::command::CommandExecutor;
-use crate::ddc::error::{DDCError, DDCResult, is_permission_error};
+use crate::ddc::error::{is_permission_error, DDCError, DDCResult};
 use crate::ddc::monitor::{Monitor, MonitorDetector};
-use crate::ddc::vcp_codes::{get_vcp_info, get_common_vcp_codes};
+use crate::ddc::vcp_codes::{get_common_vcp_codes, get_vcp_info};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
 /// Default cache TTL in seconds.
 const DEFAULT_CACHE_TTL_SECS: f64 = 5.0;
-
-/// Default minimum brightness value.
-const DEFAULT_BRIGHTNESS_MIN: u16 = 0;
-
-/// Default maximum brightness value.
-const DEFAULT_BRIGHTNESS_MAX: u16 = 100;
 
 /// Main interface for DDC/CI operations.
 ///
@@ -34,6 +28,7 @@ pub struct DDCManager {
     /// Whether the manager has been initialized
     initialized: Arc<RwLock<bool>>,
     /// Cache timestamps for VCP values
+    #[allow(clippy::type_complexity)]
     cache_timestamps: Arc<RwLock<HashMap<String, HashMap<u8, chrono::DateTime<chrono::Utc>>>>>,
 }
 
@@ -41,10 +36,10 @@ impl DDCManager {
     /// Create a new DDCManager with default settings.
     pub async fn new() -> DDCResult<Self> {
         tracing::info!("DDCManager::new() called");
-        
+
         let executor = Arc::new(tokio::sync::Mutex::new(CommandExecutor::new()));
         tracing::info!("CommandExecutor created");
-        
+
         let detector = MonitorDetector::new(executor.clone());
         tracing::info!("MonitorDetector created");
 
@@ -133,9 +128,7 @@ impl DDCManager {
         // Try to query a common VCP code to check permissions
         let bus_to_check = bus.unwrap_or(1);
         match executor.get_vcp(bus_to_check, 0x10).await {
-            Ok(result) => {
-                result.success || !result.stderr.contains("Permission denied")
-            }
+            Ok(result) => result.success || !result.stderr.contains("Permission denied"),
             Err(e) => !is_permission_error(&e),
         }
     }
@@ -171,7 +164,10 @@ impl DDCManager {
                 return Ok(monitor.clone());
             }
         }
-        Err(DDCError::Other(format!("Monitor with serial {} not found", serial)))
+        Err(DDCError::Other(format!(
+            "Monitor with serial {} not found",
+            serial
+        )))
     }
 
     /// Get a monitor by its unique ID.
@@ -224,17 +220,14 @@ impl DDCManager {
 
             Ok(value)
         } else {
-            Err(DDCError::ParseError("Failed to parse VCP value".to_string()))
+            Err(DDCError::ParseError(
+                "Failed to parse VCP value".to_string(),
+            ))
         }
     }
 
     /// Set a VCP value on a monitor.
-    pub async fn set_vcp(
-        &self,
-        monitor_id: &str,
-        vcp_code: u8,
-        value: u16,
-    ) -> DDCResult<()> {
+    pub async fn set_vcp(&self, monitor_id: &str, vcp_code: u8, value: u16) -> DDCResult<()> {
         let monitor = self.get_monitor_by_id(monitor_id).await?;
 
         // Warn if VCP code is not in reported capabilities, but don't block —
@@ -243,7 +236,8 @@ impl DDCManager {
         if !monitor.capabilities.supports_vcp(vcp_code) {
             tracing::warn!(
                 "VCP code 0x{:02X} not reported in capabilities for {}, attempting anyway",
-                vcp_code, monitor_id
+                vcp_code,
+                monitor_id
             );
         }
 
@@ -306,7 +300,9 @@ impl DDCManager {
 
     /// Read brightness from kernel backlight sysfs.
     async fn _get_backlight_brightness(&self, monitor: &Monitor) -> DDCResult<u16> {
-        let path = monitor.backlight_path.as_ref()
+        let path = monitor
+            .backlight_path
+            .as_ref()
             .ok_or_else(|| DDCError::Other("No backlight path".to_string()))?;
 
         let max_brightness: u16 = tokio::task::spawn_blocking({
@@ -317,7 +313,9 @@ impl DDCManager {
                     .and_then(|s| s.trim().parse().ok())
                     .unwrap_or(100)
             }
-        }).await.map_err(|e| DDCError::Other(e.to_string()))?;
+        })
+        .await
+        .map_err(|e| DDCError::Other(e.to_string()))?;
 
         let current: u16 = tokio::task::spawn_blocking({
             let path = path.clone();
@@ -327,7 +325,9 @@ impl DDCManager {
                     .and_then(|s| s.trim().parse().ok())
                     .unwrap_or(0)
             }
-        }).await.map_err(|e| DDCError::Other(e.to_string()))?;
+        })
+        .await
+        .map_err(|e| DDCError::Other(e.to_string()))?;
 
         // Convert to 0-100 percentage
         let pct = if max_brightness > 0 {
@@ -336,7 +336,13 @@ impl DDCManager {
             0
         };
 
-        tracing::debug!("Backlight {} read: {}/{} = {}%", path, current, max_brightness, pct);
+        tracing::debug!(
+            "Backlight {} read: {}/{} = {}%",
+            path,
+            current,
+            max_brightness,
+            pct
+        );
         Ok(pct)
     }
 
@@ -346,14 +352,18 @@ impl DDCManager {
     /// without special group membership — it checks the active session
     /// instead of file permissions. Falls back to direct sysfs write.
     async fn _set_backlight_brightness(&self, monitor: &Monitor, value: u16) -> DDCResult<()> {
-        let path = monitor.backlight_path.as_ref()
+        let path = monitor
+            .backlight_path
+            .as_ref()
             .ok_or_else(|| DDCError::Other("No backlight path".to_string()))?;
 
         let value = value.clamp(0, 100);
 
         // Extract backlight name from sysfs path (e.g. "intel_backlight" from
         // "/sys/class/backlight/intel_backlight")
-        let backlight_name = path.rsplit('/').next()
+        let backlight_name = path
+            .rsplit('/')
+            .next()
             .ok_or_else(|| DDCError::Other("Invalid backlight path".to_string()))?
             .to_string();
 
@@ -367,7 +377,9 @@ impl DDCManager {
                 let raw = (value as u32 * max / 100) as u32;
                 (raw, max)
             }
-        }).await.map_err(|e| DDCError::Other(e.to_string()))?;
+        })
+        .await
+        .map_err(|e| DDCError::Other(e.to_string()))?;
 
         // Try systemd-logind D-Bus SetBrightness first.
         // This works without special permissions for any user with an active session.
@@ -378,9 +390,12 @@ impl DDCManager {
                     .args([
                         "call",
                         "--system",
-                        "--dest", "org.freedesktop.login1",
-                        "--object-path", "/org/freedesktop/login1/session/auto",
-                        "--method", "org.freedesktop.login1.Session.SetBrightness",
+                        "--dest",
+                        "org.freedesktop.login1",
+                        "--object-path",
+                        "/org/freedesktop/login1/session/auto",
+                        "--method",
+                        "org.freedesktop.login1.Session.SetBrightness",
                         "backlight",
                         &backlight_name,
                         &raw_value.to_string(),
@@ -389,20 +404,25 @@ impl DDCManager {
 
                 if !output.status.success() {
                     let stderr = String::from_utf8_lossy(&output.stderr);
-                    return Err(std::io::Error::new(
-                        std::io::ErrorKind::Other,
-                        format!("gdbus SetBrightness failed: {}", stderr.trim()),
-                    ));
+                    return Err(std::io::Error::other(format!(
+                        "gdbus SetBrightness failed: {}",
+                        stderr.trim()
+                    )));
                 }
                 Ok(())
             }
-        }).await.map_err(|e| DDCError::Other(e.to_string()))?;
+        })
+        .await
+        .map_err(|e| DDCError::Other(e.to_string()))?;
 
         match gdbus_result {
             Ok(()) => {
                 tracing::info!(
                     "Backlight {} set to {}% (raw {}/{}) via systemd-logind",
-                    backlight_name, value, raw_value, max
+                    backlight_name,
+                    value,
+                    raw_value,
+                    max
                 );
                 return Ok(());
             }
@@ -417,10 +437,10 @@ impl DDCManager {
         // Fallback: direct sysfs write (needs video group or root)
         let result: std::io::Result<()> = tokio::task::spawn_blocking({
             let path = path.clone();
-            move || {
-                std::fs::write(format!("{}/brightness", path), raw_value.to_string())
-            }
-        }).await.map_err(|e| DDCError::Other(e.to_string()))?;
+            move || std::fs::write(format!("{}/brightness", path), raw_value.to_string())
+        })
+        .await
+        .map_err(|e| DDCError::Other(e.to_string()))?;
 
         result.map_err(|e| {
             if e.kind() == std::io::ErrorKind::PermissionDenied {
@@ -434,7 +454,13 @@ impl DDCManager {
             }
         })?;
 
-        tracing::info!("Backlight {} set to {}% (raw {}/{}) via sysfs", backlight_name, value, raw_value, max);
+        tracing::info!(
+            "Backlight {} set to {}% (raw {}/{}) via sysfs",
+            backlight_name,
+            value,
+            raw_value,
+            max
+        );
         Ok(())
     }
 
@@ -528,7 +554,9 @@ impl Default for DDCManager {
         // In async context, use DDCManager::new() instead
         Self {
             executor: Arc::new(tokio::sync::Mutex::new(CommandExecutor::default())),
-            detector: MonitorDetector::new(Arc::new(tokio::sync::Mutex::new(CommandExecutor::default()))),
+            detector: MonitorDetector::new(Arc::new(tokio::sync::Mutex::new(
+                CommandExecutor::default(),
+            ))),
             cache_ttl: DEFAULT_CACHE_TTL_SECS,
             monitors: Arc::new(RwLock::new(HashMap::new())),
             initialized: Arc::new(RwLock::new(false)),

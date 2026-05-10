@@ -47,7 +47,9 @@ impl VCPCodeInfo {
     pub fn validate_value(&self, value: u16) -> bool {
         match self.value_type {
             ValueType::Continuous => self.min_value <= value && value <= self.max_value,
-            ValueType::NonContinuous => self.values.as_ref().map_or(false, |v| v.contains_key(&value)),
+            ValueType::NonContinuous => {
+                self.values.as_ref().is_some_and(|v| v.contains_key(&value))
+            }
             _ => false,
         }
     }
@@ -151,7 +153,9 @@ pub fn get_common_vcp_codes() -> Vec<VCPCodeInfo> {
 
 /// Get information about a specific VCP code.
 pub fn get_vcp_info(code: u8) -> Option<VCPCodeInfo> {
-    get_common_vcp_codes().into_iter().find(|info| info.code == code)
+    get_common_vcp_codes()
+        .into_iter()
+        .find(|info| info.code == code)
 }
 
 /// Color temperature presets for VCP code 0x14.
