@@ -5,8 +5,8 @@ edition = "2021"
 authors = ["Twinkle Linux Contributors"]
 description = "GUI application for controlling external monitor brightness via DDC/CI on Linux"
 license = "MIT"
-repository = "https://github.com/twinkle-twinkle/twinkle-linux"
-readme = "../README.md"
+repository = "https://github.com/ebarczynski/twinkle-linux"
+readme = "README.md"
 keywords = ["ddc", "monitor", "brightness", "linux", "gtk"]
 categories = ["gui", "hardware-support"]
 

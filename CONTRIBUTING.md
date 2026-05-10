@@ -1,218 +1,120 @@
 # Contributing to Twinkle Linux
 
-Thank you for your interest in contributing to Twinkle Linux! We welcome contributions from everyone, whether you're fixing bugs, adding features, improving documentation, or reporting issues.
+Thank you for contributing to Twinkle Linux! This guide covers everything you need to get started.
 
-## Table of Contents
+## How to Contribute
 
-- [Getting Started](#getting-started)
-- [Development Setup](#development-setup)
-- [Code Style Guidelines](#code-style-guidelines)
-- [Commit Message Guidelines](#commit-message-guidelines)
-- [Pull Request Process](#pull-request-process)
-- [Testing](#testing)
-- [Reporting Issues](#reporting-issues)
-- [Feature Requests](#feature-requests)
-
-## Getting Started
-
-### Prerequisites
-
-Before contributing, make sure you have:
-
-- Python 3.10 or later
-- Git installed and configured
-- A GitHub account
-- Familiarity with Python and PyQt6
-- Basic understanding of DDC/CI protocol (helpful but not required)
-
-### Setting Up Your Development Environment
-
-1. **Fork the Repository**
-
-   Visit the [Twinkle Linux repository](https://github.com/twinkle-linux/twinkle-linux) and click the "Fork" button in the top-right corner.
-
-2. **Clone Your Fork**
-
+1. **Fork** the repository at [github.com/ebarczynski/twinkle-linux](https://github.com/ebarczynski/twinkle-linux)
+2. **Clone** your fork and add the upstream remote:
    ```bash
    git clone https://github.com/YOUR_USERNAME/twinkle-linux.git
    cd twinkle-linux
+   git remote add upstream https://github.com/ebarczynski/twinkle-linux.git
    ```
-
-3. **Add Upstream Remote**
-
+3. **Create a branch** for your change:
    ```bash
-   git remote add upstream https://github.com/twinkle-linux/twinkle-linux.git
+   git checkout -b feat/your-feature-name
    ```
-
-4. **Create a Virtual Environment**
-
-   ```bash
-   python3 -m venv venv
-   source venv/bin/activate  # On Windows: venv\Scripts\activate
-   ```
-
-5. **Install Dependencies**
-
-   ```bash
-   pip install -r requirements.txt
-   pip install -e ".[dev]"
-   ```
-
-6. **Install System Dependencies**
-
-   ```bash
-   # Ubuntu/Debian
-   sudo apt install ddcutil i2c-tools
-
-   # Fedora/RHEL/CentOS
-   sudo dnf install ddcutil i2c-tools
-
-   # Arch Linux/Manjaro
-   sudo pacman -S ddcutil i2c-tools
-   ```
+4. **Make your changes**, commit, and push to your fork
+5. **Open a Pull Request** against the `main` branch
 
 ## Development Setup
+
+### Prerequisites
+
+- **Rust toolchain** (install via [rustup](https://rustup.rs)):
+  ```bash
+  rustup toolchain install stable
+  ```
+- **GTK4 development libraries** (required for the GUI):
+  ```bash
+  # Ubuntu/Debian
+  sudo apt install libgtk-4-dev libadwaita-1-dev
+
+  # Fedora
+  sudo dnf install gtk4-devel libadwaita-devel
+
+  # Arch Linux
+  sudo pacman -S gtk4 libadwaita
+  ```
+- **ddcutil** (for DDC/CI monitor communication):
+  ```bash
+  # Ubuntu/Debian
+  sudo apt install ddcutil i2c-tools
+
+  # Fedora
+  sudo dnf install ddcutil i2c-tools
+
+  # Arch Linux
+  sudo pacman -S ddcutil i2c-tools
+  ```
 
 ### Project Structure
 
 ```
 twinkle-linux/
-├── src/
-│   ├── main.py              # Application entry point
-│   ├── core/                # Core application logic
-│   │   ├── app.py           # Application controller
-│   │   ├── config.py        # Configuration management
-│   │   └── logging.py       # Logging configuration
-│   ├── ddc/                 # DDC/CI abstraction layer
-│   │   ├── command.py       # DDC/CI command execution
-│   │   ├── ddc_manager.py   # DDC/CI manager
-│   │   ├── exceptions.py    # DDC/CI exceptions
-│   │   ├── monitor.py       # Monitor model
-│   │   └── vcp_codes.py     # VCP code definitions
-│   ├── ui/                  # User interface layer
-│   │   ├── ui_main.py       # Main UI controller
-│   │   ├── brightness_popup.py  # Brightness popup
-│   │   ├── widgets/         # UI widgets
-│   │   │   ├── brightness_slider.py
-│   │   │   ├── settings_dialog.py
-│   │   │   └── vcp_controls.py
-│   │   └── resources/       # UI resources
-│   ├── services/            # Application services
-│   └── utils/               # Utility functions
-├── tests/                   # Test suite
-│   ├── unit/                # Unit tests
-│   ├── integration/         # Integration tests
-│   └── fixtures/            # Test fixtures
-├── packaging/               # Distribution packaging
-├── scripts/                 # Utility scripts
-├── docs/                    # Documentation
-├── pyproject.toml           # Project configuration
-├── requirements.txt         # Python dependencies
-├── CHANGELOG.md             # Version history
-├── CONTRIBUTING.md          # Contributing guidelines
-├── LICENSE                  # MIT License
-└── README.md                # Project overview
+├── twinkle-rust/          # Primary Rust implementation
+│   ├── src/               # Application source
+│   ├── Cargo.toml         # Rust package manifest
+│   └── ...
+├── twinkle-cpp/           # Future C++23/26 implementation
+│   └── ...
+├── CONTRIBUTING.md
+├── LICENSE                # MIT
+└── README.md
 ```
 
-### Running the Application
+## Building & Testing
+
+All commands run from `twinkle-rust/`:
 
 ```bash
-# Run from source
-python src/main.py
+cd twinkle-rust
 
-# Run with debug logging
-python src/main.py --debug
+# Build (debug)
+cargo build
 
-# Run with custom config
-python src/main.py --config /path/to/config.json
+# Build (release)
+cargo build --release
+
+# Run tests
+cargo test
+
+# Run a specific test
+cargo test test_name
+
+# Run with output
+cargo test -- --nocapture
 ```
 
-### Running Tests
+## Code Style
+
+We rely on the standard Rust tooling — no custom config needed:
 
 ```bash
-# Run all tests
-pytest
+# Format code
+cargo fmt
 
-# Run with coverage
-pytest --cov=src
+# Check formatting
+cargo fmt --check
 
-# Run specific test file
-pytest tests/unit/test_config.py
+# Lint
+cargo clippy
 
-# Run with verbose output
-pytest -v
-
-# Run only unit tests
-pytest tests/unit/
-
-# Run only integration tests
-pytest tests/integration/
+# Treat clippy warnings as errors (CI does this)
+cargo clippy -- -D warnings
 ```
 
-## Code Style Guidelines
+### Guidelines
 
-We follow these coding standards to maintain code quality and consistency:
+- Follow idiomatic Rust conventions (see [The Book](https://doc.rust-lang.org/book/))
+- Use `cargo clippy` and fix all warnings before submitting
+- Keep public API documented with `///` doc comments
+- Prefer `Result` over `unwrap`/`expect` in library code
 
-### Python Style
+## Commit Messages
 
-- **PEP 8**: Follow Python Enhancement Proposal 8 style guide
-- **Type Hints**: Use type hints for all function signatures and complex types
-- **Docstrings**: Use Google-style docstrings for all public functions and classes
-- **Line Length**: Maximum 100 characters per line
-
-### Code Formatting
-
-We use the following tools for code quality:
-
-```bash
-# Format code with Black
-black src tests
-
-# Check formatting without modifying
-black --check src tests
-
-# Run Pylint for linting
-pylint src
-
-# Run MyPy for type checking
-mypy src
-
-# Run isort for import sorting
-isort src tests
-```
-
-### Naming Conventions
-
-- **Classes**: `PascalCase` (e.g., `DDCManager`)
-- **Functions/Methods**: `snake_case` (e.g., `get_brightness`)
-- **Constants**: `UPPER_SNAKE_CASE` (e.g., `DEFAULT_TIMEOUT`)
-- **Private Members**: `_leading_underscore` (e.g., `_internal_method`)
-- **Protected Members**: `__double_underscore` (e.g., `__private_method`)
-
-### Documentation
-
-- All public functions and classes must have docstrings
-- Use Google-style docstrings:
-  ```python
-  def get_brightness(monitor_id: str) -> int:
-      """Get the current brightness level for a monitor.
-
-      Args:
-          monitor_id: The unique identifier of the monitor.
-
-      Returns:
-          The current brightness level (0-100).
-
-      Raises:
-          MonitorNotFoundError: If the monitor is not found.
-          DDCError: If there's an error communicating with the monitor.
-      """
-      ...
-  ```
-
-## Commit Message Guidelines
-
-We follow a conventional commit message format:
+We use [Conventional Commits](https://www.conventionalcommits.org/):
 
 ```
 <type>(<scope>): <subject>
@@ -222,219 +124,69 @@ We follow a conventional commit message format:
 <footer>
 ```
 
-### Types
+**Types:** `feat`, `fix`, `docs`, `style`, `refactor`, `test`, `chore`, `perf`
 
-- `feat`: A new feature
-- `fix`: A bug fix
-- `docs`: Documentation changes
-- `style`: Code style changes (formatting, etc.)
-- `refactor`: Code refactoring
-- `test`: Adding or updating tests
-- `chore`: Maintenance tasks
-- `perf`: Performance improvements
+**Scopes:** `ui`, `ddc`, `config`, `cpp`, or omit for general changes.
 
-### Examples
+Examples:
 
 ```
 feat(ui): add brightness slider widget
-
-Add a new brightness slider widget that allows users to
-adjust brightness with a visual slider interface.
-
-Closes #123
-```
-
-```
 fix(ddc): handle monitor timeout errors
-
-Add retry logic for DDC/CI commands that timeout after
-the configured timeout period.
-
-Fixes #456
+docs(readme): update build instructions
 ```
 
 ## Pull Request Process
 
-### Before Submitting
+Before submitting a PR:
 
-1. **Update Your Branch**
-
+1. **Rebase** on upstream `main`:
    ```bash
    git fetch upstream
    git rebase upstream/main
    ```
-
-2. **Run Tests**
-
+2. **Run checks** and fix any issues:
    ```bash
-   pytest
+   cd twinkle-rust
+   cargo fmt --check
+   cargo clippy -- -D warnings
+   cargo test
    ```
+3. **Update documentation** if your change affects user-facing behavior
 
-3. **Run Code Quality Checks**
+### PR Checklist
 
-   ```bash
-   black src tests
-   pylint src
-   mypy src
-   ```
+- [ ] `cargo fmt --check` passes
+- [ ] `cargo clippy` reports no warnings
+- [ ] `cargo test` passes
+- [ ] New features include tests
+- [ ] Commit messages follow conventional commits
+- [ ] No merge conflicts with `main`
 
-4. **Update Documentation**
+## Adding Features to twinkle-cpp
 
-   - Update relevant documentation files
-   - Add docstrings to new functions/classes
-   - Update CHANGELOG.md for user-facing changes
+The `twinkle-cpp/` directory hosts a future C++23/26 implementation that mirrors the architecture of `twinkle-rust/`. When adding a feature:
 
-### Creating a Pull Request
+1. **Implement in Rust first** (`twinkle-rust/`) — this is the primary implementation
+2. **Add a corresponding C++ implementation** in `twinkle-cpp/` following the same module structure
+3. Keep the C++ version API-compatible with the Rust version where practical
+4. C++ code should target C++23/26 and follow modern idioms (smart pointers, `std::expected`, concepts, modules where applicable)
 
-1. Push your changes to your fork:
-
-   ```bash
-   git push origin feature/your-feature-name
-   ```
-
-2. Create a pull request on GitHub:
-   - Go to the repository on GitHub
-   - Click "New Pull Request"
-   - Select your branch
-   - Provide a descriptive title
-   - Fill in the PR template
-
-3. Wait for review and address any feedback
-
-### Pull Request Checklist
-
-- [ ] Code follows project style guidelines
-- [ ] Tests pass locally
-- [ ] New tests added for new features
-- [ ] Documentation updated
-- [ ] CHANGELOG.md updated (for user-facing changes)
-- [ ] Commit messages follow guidelines
-- [ ] No merge conflicts with upstream/main
-
-## Testing
-
-### Writing Tests
-
-We use pytest for testing. Tests should be organized as:
-
-- **Unit Tests**: Test individual functions and classes in isolation
-- **Integration Tests**: Test how components work together
-- **Fixtures**: Reusable test data and setup
-
-### Test Structure
-
-```
-tests/
-├── unit/
-│   ├── test_config.py
-│   ├── test_ddc_manager.py
-│   └── ...
-├── integration/
-│   ├── test_monitor_detection.py
-│   └── ...
-└── fixtures/
-    ├── mock_monitor_data.py
-    └── ...
-```
-
-### Example Test
-
-```python
-import pytest
-from src.ddc.monitor import Monitor
-
-def test_monitor_creation():
-    """Test creating a new monitor instance."""
-    monitor = Monitor(
-        serial="LEN123456",
-        name="Lenovo T24i",
-        bus="i2c-3"
-    )
-    assert monitor.serial == "LEN123456"
-    assert monitor.name == "Lenovo T24i"
-    assert monitor.bus == "i2c-3"
-```
-
-### Running Tests
-
-```bash
-# Run all tests
-pytest
-
-# Run with coverage
-pytest --cov=src --cov-report=html
-
-# Run specific test
-pytest tests/unit/test_config.py::test_load_config
-
-# Run with verbose output
-pytest -v
-
-# Run only failed tests
-pytest --lf
-```
+The C++ implementation is a work in progress. Contributions there are welcome but should track the Rust architecture.
 
 ## Reporting Issues
 
-When reporting bugs, please include:
+When filing a bug report, include:
 
-1. **Environment Information**
-   - Operating system and version
-   - Python version
-   - ddcutil version (`ddcutil --version`)
-   - Twinkle Linux version
+- OS and version
+- Rust version (`rustc --version`)
+- ddcutil version (`ddcutil --version`)
+- Steps to reproduce
+- Expected vs. actual behavior
+- Relevant log output
 
-2. **Steps to Reproduce**
-   - Clear, numbered steps to reproduce the issue
-   - Expected behavior
-   - Actual behavior
-
-3. **Logs and Error Messages**
-   - Relevant log output
-   - Error messages
-   - Screenshots (if applicable)
-
-4. **Additional Context**
-   - Monitor model and connection type
-   - Any relevant configuration
-   - Workarounds you've tried
-
-Use the [GitHub Issues](https://github.com/twinkle-linux/twinkle-linux/issues) page to report bugs.
-
-## Feature Requests
-
-We welcome feature requests! When suggesting a new feature:
-
-1. **Check Existing Issues**
-   - Search for similar requests first
-   - Add comments to existing requests if relevant
-
-2. **Provide Context**
-   - Describe the use case
-   - Explain why this feature would be useful
-   - Consider potential implementation approaches
-
-3. **Be Specific**
-   - Provide clear requirements
-   - Consider edge cases
-   - Think about user experience
-
-4. **Consider Contributing**
-   - If you're able to implement the feature, that's even better!
-   - Open an issue first to discuss the approach
-
-## Questions and Support
-
-- **GitHub Discussions**: For general questions and discussions
-- **GitHub Issues**: For bug reports and feature requests
-- **Documentation**: Check the [docs/](docs/) directory for detailed guides
-
-## Code of Conduct
-
-Be respectful and constructive in all interactions. We're all here to improve Twinkle Linux together.
+File issues at [GitHub Issues](https://github.com/ebarczynski/twinkle-linux/issues).
 
 ## License
 
-By contributing to Twinkle Linux, you agree that your contributions will be licensed under the MIT License.
-
-Thank you for contributing to Twinkle Linux!
+By contributing, you agree that your contributions are licensed under the [MIT License](LICENSE).

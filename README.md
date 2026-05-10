@@ -1,204 +1,210 @@
 # Twinkle Linux
 
-A modern, minimalistic Linux monitor brightness control app with system tray integration.
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](https://opensource.org/licenses/MIT)
+[![Rust 1.80+](https://img.shields.io/badge/rust-1.80%2B-orange.svg)](https://www.rust-lang.org/)
+[![Platform: Linux](https://img.shields.io/badge/platform-Linux-informational.svg)](https://www.kernel.org/)
 
-![License](https://img.shields.io/badge/license-MIT-blue.svg)
-![Rust](https://img.shields.io/badge/rust-1.80%2B-orange.svg)
-![Platform](https://img.shields.io/badge/platform-Linux-lightgrey.svg)
+A Linux monitor brightness control application with system tray integration.
+Built with Rust, GTK4, and D-Bus — no root required.
+
+Twinkle Linux lets you adjust the brightness of every connected display from a
+single, lightweight system tray popup. External monitors are controlled via
+DDC/CI and internal laptop panels via systemd-logind, so it works across a wide
+range of hardware without elevated privileges.
+
+---
 
 ## Overview
 
-Twinkle Linux provides a clean, dark-themed UI for controlling monitor brightness on Linux. It sits in your system tray and offers per-monitor sliders, quick presets, and automatic detection of both external (DDC/CI) and internal (backlight) displays.
+- **System tray icon** — lives in your panel via the StatusNotifierItem protocol
+  (ksni, pure Rust D-Bus). Click to open the brightness popup.
+- **Per-monitor sliders** — each detected display gets its own brightness card
+  in a dark, card-based GTK4 popup. An "All Monitors" master slider at the top
+  adjusts everything at once.
+- **Quick presets** — right-click the tray icon for one-tap presets:
+  Night (10%), Dusk (20%), Cloudy (40%), Sunny (60%), Full Sun (80%), Max (100%).
+- **No root** — backlight is managed through systemd-logind D-Bus; external
+  monitors use the `ddcutil` CLI. No `sudo`, no `udev` rules, no group
+  membership.
 
-### Features
+## Features
 
-- **System Tray Integration** — Left-click the tray icon to open brightness control, right-click for presets and menu
-- **Per-Monitor Control** — Each detected display gets its own brightness slider card
-- **Quick Presets** — Set all monitors to 25%/50%/75%/100% from the tray menu
-- **Internal Display Support** — Controls laptop panels via systemd-logind D-Bus (Intel, AMD, NVIDIA)
-- **External Monitor Support** — DDC/CI protocol over I2C (HDMI, DisplayPort, USB-C)
-- **Modern Dark UI** — Card-based layout with smooth sliders, inspired by Material Design
-- **Debounced Sliders** — 300ms debounce prevents I2C flooding when dragging
-- **No Root Required** — Uses D-Bus for backlight, udev rules for DDC/CI
+| Feature | Details |
+|---|---|
+| System tray | StatusNotifierItem via ksni (pure Rust) |
+| Per-monitor sliders | Card-based dark UI, one slider per display |
+| "All Monitors" master | Always visible at the top of the popup |
+| Quick presets | 6 presets from the tray context menu |
+| DDC/CI (external) | HDMI, DisplayPort, USB-C monitors via `ddcutil` |
+| Backlight (internal) | Laptop panels via systemd-logind D-Bus |
+| Debounced I2C | 300 ms debounce to avoid flooding the DDC bus |
+| GTK4 dark theme | CSS-styled, card-based popup window |
+| Persistent config | JSON config at `~/.config/twinkle-linux/config.json` |
+| Autostart | Ships a `.desktop` file for XDG autostart |
 
-### Supported Hardware
+## Supported Hardware
 
-#### External Monitors (DDC/CI)
+| Driver / Subsystem | Connection | Method | Notes |
+|---|---|---|---|
+| Intel i915 | Internal (eDP) | systemd-logind D-Bus | Backlight sysfs via logind |
+| AMD amdgpu | Internal (eDP) | systemd-logind D-Bus | Backlight sysfs via logind |
+| NVIDIA proprietary | Internal (eDP) | systemd-logind D-Bus | Requires `NVreg_RegistryDwords=EnableBrightnessControl=1` or nvidia-backlight |
+| ACPI generic | Internal (eDP) | systemd-logind D-Bus | Fallback path |
+| DDC/CI (any GPU) | HDMI | `ddcutil` CLI | VCP code 0x10 (Brightness) |
+| DDC/CI (any GPU) | DisplayPort | `ddcutil` CLI | VCP code 0x10 |
+| DDC/CI (any GPU) | USB-C / USB-C DP Alt | `ddcutil` CLI | VCP code 0x10 |
 
-Any DDC/CI-compliant monitor connected via HDMI, DisplayPort, or USB-C, including:
-- Lenovo (T24i, ThinkVision series)
-- Dell (U-series, P-series, S-series)
-- LG (UltraFine, UltraGear)
-- HP, ASUS, BenQ, Samsung, Acer, and most modern monitors
-
-#### Internal Laptop Displays
-
-Twinkle Linux supports laptop internal panels through the Linux kernel backlight subsystem:
-
-| GPU / APU | Backlight Interface | Driver |
-|---|---|---|
-| Intel (integrated, 6th–14th Gen) | `/sys/class/backlight/intel_backlight/` | `i915` |
-| AMD (Ryzen, Ryzen AI, Ryzen AI Max 395+) | `/sys/class/backlight/amdgpu_bl0/` | `amdgpu` |
-| NVIDIA (proprietary driver) | `/sys/class/backlight/nvidia_0/` or `acpi_video0` | `nvidia` |
-| Generic (ACPI) | `/sys/class/backlight/acpi_video0/` | `acpi` |
-
-Brightness control for internal displays uses `org.freedesktop.login1.Session.SetBrightness` via D-Bus, so no special group membership or udev rules are needed — it works as long as you have an active login session.
+> **Note:** USB-C docks and hubs that expose DDC/CI to downstream monitors are
+> also supported, as long as `ddcutil detect` lists the display.
 
 ## Requirements
 
-- Linux with a desktop environment (GNOME, KDE, XFCE, etc.)
-- `ddcutil` CLI tool (for external monitor DDC/CI)
-- GTK4 runtime libraries
-- Rust 1.80+ (for building)
+| Requirement | Version |
+|---|---|
+| Rust | 1.80 or newer |
+| GTK4 development libraries | 4.x |
+| `ddcutil` CLI | 2.x recommended (`sudo apt install ddcutil`) |
+| Linux kernel | 6.x recommended (any version with DDC/CI support) |
+| systemd-logind | For internal panel backlight (present on all modern distros) |
+| D-Bus session bus | For system tray (StatusNotifierItem) |
 
-### Install ddcutil
+### Install dependencies (Debian / Ubuntu)
 
 ```bash
-# Ubuntu / Debian
-sudo apt install ddcutil
-
-# Fedora
-sudo dnf install ddcutil
-
-# Arch Linux
-sudo pacman -S ddcutil
+sudo apt install libgtk-4-dev ddcutil
 ```
 
-### I2C Permissions (for DDC/CI)
+### Install dependencies (Fedora)
 
 ```bash
-# Add your user to the i2c group
-sudo usermod -aG i2c $USER
+sudo dnf install gtk4-devel ddcutil
+```
 
-# Log out and back in for the group change to take effect
+### Install dependencies (Arch Linux)
+
+```bash
+sudo pacman -S gtk4 ddcutil
 ```
 
 ## Building
 
 ```bash
-git clone https://github.com/ebarczynski/twinkle-linux.git
-cd twinkle-linux/twinkle-rust
+cd twinkle-rust
 cargo build --release
 ```
 
-The binary will be at `target/release/twinkle-linux`.
+The binary is placed at `twinkle-rust/target/release/twinkle-linux`.
+
+### Quick install (optional)
+
+```bash
+cp twinkle-rust/target/release/twinkle-linux ~/.local/bin/
+```
 
 ## Usage
 
-### Running
+Launch the application:
 
 ```bash
-# From the build directory
-./target/release/twinkle-linux
-
-# Or install to ~/.local/bin
-cp target/release/twinkle-linux ~/.local/bin/
 twinkle-linux
 ```
 
-The app starts as a system tray icon. No window opens by default.
+A brightness icon will appear in your system tray.
 
 ### Controls
 
 | Action | Effect |
 |---|---|
-| Left-click tray icon | Open brightness control window |
-| Right-click tray icon | Open context menu with presets |
-| Drag slider | Adjust brightness (debounced 300ms) |
-| "All Monitors" toggle | Link all sliders to move together |
-| Preset (25/50/75/100%) | Set all monitors to that level |
-
-### Command Line
-
-```
-twinkle-linux [OPTIONS]
-
-Options:
-  -v, --verbose    Enable verbose logging
-  --debug          Enable debug logging
-  --help           Show help
-```
+| Left-click tray icon | Open / close brightness popup |
+| Drag a monitor slider | Adjust that monitor's brightness (debounced) |
+| Drag "All Monitors" slider | Adjust all monitors simultaneously |
+| Right-click tray icon | Open context menu with quick presets |
+| Select a preset (e.g. "Night 10%") | Set all monitors to that brightness level |
+| Click "Quit" in tray menu | Exit the application |
 
 ## Architecture
 
 ```
-twinkle-rust/
-├── src/
-│   ├── main.rs              # App entry, GTK4 application + tokio runtime
-│   ├── ddc/
-│   │   ├── mod.rs           # DDC module exports
-│   │   ├── command.rs       # ddcutil CLI wrapper (subprocess)
-│   │   ├── ddc_manager.rs   # DDC operations + backlight via D-Bus
-│   │   └── monitor.rs       # Monitor detection + backlight discovery
-│   ├── ui/
-│   │   ├── brightness_popup.rs  # Main window: card-based per-monitor sliders
-│   │   ├── tray_icon.rs         # System tray via ksni (D-Bus StatusNotifierItem)
-│   │   ├── style.css            # GTK4 CSS: dark theme, rounded cards
-│   │   └── widgets/
-│   │       ├── brightness_slider.rs  # Slider widget with debounce
-│   │       └── settings_dialog.rs    # Settings dialog (DDC timeout, retries)
-│   └── core/
-│       └── config.rs        # Config persistence (JSON)
-└── Cargo.toml
+twinkle-rust/src/
+├── main.rs              GTK4 Application + tokio runtime entry point
+├── ddc/                 DDC/CI subsystem
+│   ├── mod.rs           DDC manager, monitor detection
+│   ├── wrapper.rs       ddcutil CLI wrapper (--brief --sleep-multiplier 0.5)
+│   └── vcp.rs           VCP code definitions (0x10 Brightness)
+├── ui/                  GTK4 user interface
+│   ├── mod.rs           UI module root
+│   ├── brightness.rs    Brightness popup (card layout, per-monitor sliders)
+│   ├── tray.rs          System tray icon (ksni StatusNotifierItem)
+│   ├── style.css        Dark theme stylesheet
+│   └── settings.rs      Settings dialog
+└── core/                Core logic
+    ├── mod.rs           Core module root
+    └── config.rs        Config persistence (JSON via serde)
 ```
 
-### Key Design Decisions
+### Channel bridge
 
-- **GTK4** for the UI — modern toolkit, Wayland-native, CSS theming
-- **ksni** for system tray — pure Rust D-Bus StatusNotifierItem, no GTK3 dependency (GTK3+GTK4 in the same process causes a crash)
-- **tokio** runtime entered once before `gtk::Application::run()` — GTK4 owns the main loop
-- **Channel bridge** between ksni (async/tokio) and GTK4 (sync/GLib) via `mpsc` + `glib::timeout_add_local`
-- **glib::spawn_future_local** for async DDC operations from GTK callbacks (avoids nested runtime panic)
-- **systemd-logind D-Bus** for backlight control — works without root or group membership
-- **`ddcutil --brief --sleep-multiplier 0.5`** for reliable DDC/CI with fast detection
+ksni is async (tokio), but GTK4 is single-threaded. The bridge between them:
 
-### Monitor Detection Flow
+1. **ksni async handlers** send messages through an `mpsc` channel.
+2. `glib::timeout_add_local` polls the channel on the GTK main thread and
+   updates the UI.
+3. For DDC/CI writes from slider callbacks, `glib::spawn_future_local` runs
+   the async `ddcutil` invocation on the local tokio handle.
 
-1. `ddcutil detect --brief` — discovers I2C buses with monitors
-2. `ddcutil capabilities --bus=N` — checks VCP 0x10 (brightness) support
-   - Skips monitors where capabilities fail (internal panels, broken I2C)
-3. `/sys/class/backlight/` scan — finds kernel backlight devices
-   - Matches to display connectors via `/sys/class/backlight/*/device/drm/`
-4. Duplicate elimination — if a panel appears in both DDC and backlight, only backlight is kept
+This avoids all cross-thread GTK access while keeping the UI responsive.
 
-### Brightness Control Flow
+### Key design decisions
 
-- **External (DDC/CI)**: `ddcutil --sleep-multiplier 0.5 setvcp --bus=N 0x10 <value>` (0-100)
-- **Internal (backlight)**: `gdbus call ... org.freedesktop.login1.Session.SetBrightness backlight <name> <raw_value>`
-  - Reads `max_brightness` from sysfs, converts percentage to raw value
-  - Uses `session/auto` object path for automatic session detection
+| Decision | Rationale |
+|---|---|
+| **ksni** over libappindicator | libappindicator links GTK3, which crashes inside a GTK4 process. ksni is pure Rust D-Bus. |
+| **systemd-logind D-Bus** for backlight | No root, no `video` group, works on Intel/AMD/NVIDIA out of the box. |
+| **`ddcutil` CLI** for DDC/CI | Battle-tested I2C reliability with `--brief --sleep-multiplier 0.5`. Avoids raw I2C edge cases. |
+| **300 ms debounce** | Prevents I2C bus flooding when dragging sliders. |
+| **`glib::spawn_future_local`** | Safely runs async DDC operations from GTK signal handlers without blocking the UI. |
 
 ## Configuration
 
-Config stored at `~/.config/twinkle-linux/config.json`:
+Twinkle Linux stores its configuration at:
+
+```
+~/.config/twinkle-linux/config.json
+```
+
+The file is created automatically on first run with sensible defaults. It
+persists window state, last-known brightness values, and user preferences.
+
+Example:
 
 ```json
 {
-  "ddc_timeout": 0.5,
-  "max_retries": 1,
-  "sleep_multiplier": 0.5
+  "brightness": {
+    "DP-1": 80,
+    "HDMI-A-1": 60
+  }
 }
 ```
 
-| Key | Default | Description |
-|---|---|---|
-| `ddc_timeout` | 0.5 | Timeout in seconds for ddcutil commands (detection uses 5s override) |
-| `max_retries` | 1 | Max retries for failed DDC commands |
-| `sleep_multiplier` | 0.5 | DDC/CI I2C sleep multiplier for reliable communication |
-
 ## Autostart
 
-To start Twinkle Linux automatically on login, create a desktop entry:
+To launch Twinkle Linux automatically on login, copy the included `.desktop`
+file into your XDG autostart directory:
 
 ```bash
-mkdir -p ~/.config/autostart/
+cp twinkle-rust/data/twinkle-linux.desktop ~/.config/autostart/
+```
+
+Or, if you installed the binary to `~/.local/bin/`:
+
+```bash
 cat > ~/.config/autostart/twinkle-linux.desktop << 'EOF'
 [Desktop Entry]
 Type=Application
 Name=Twinkle Linux
 Comment=Monitor brightness control
-Exec=/path/to/twinkle-linux
-Icon=display-brightness
+Exec=/home/YOURUSER/.local/bin/twinkle-linux
+Icon=video-display
 Terminal=false
 Categories=Utility;
 EOF
@@ -206,21 +212,52 @@ EOF
 
 ## Troubleshooting
 
-### No monitors detected
-- Verify `ddcutil detect` works in a terminal
-- Check I2C permissions: `ls -l /dev/i2c-*` (should show group `i2c`)
-- Run `sudo modprobe i2c-dev` if the I2C module isn't loaded
+### DDC/CI monitors not detected
 
-### Internal display brightness not working
-- Check if backlight device exists: `ls /sys/class/backlight/`
-- Verify D-Bus access: `gdbus call --system --dest org.freedesktop.login1 --object-path /org/freedesktop/login1/session/auto --method org.freedesktop.login1.Session.SetBrightness backlight intel_backlight 50`
-- The `type` file in the backlight directory indicates the interface: `firmware` (native GPU), `platform` (ACPI), or `raw`
+1. Verify `ddcutil detect` lists your monitor.
+2. If not, try `sudo modprobe i2c-dev` and check again.
+3. Some monitors need a few seconds after power-on; wait 30s and retry.
+4. USB-C docks may not forward DDC/CI — check your dock's documentation.
 
-### Tray icon not appearing
-- Ensure your desktop environment supports StatusNotifierItem (KDE, GNOME with extension, XFCE)
-- On GNOME, install the "AppIndicator" extension
-- Check D-Bus session: `qdbus org.freedesktop.StatusNotifierWatcher /StatusNotifierWatcher RegisteredStatusNotifierItems`
+### Internal laptop backlight not working
+
+1. Confirm `cat /sys/class/backlight/*/brightness` shows a value.
+2. Ensure your user session runs under systemd-logind (standard on modern
+   distros).
+3. NVIDIA users: you may need to set the kernel parameter
+   `NVreg_RegistryDwords=EnableBrightnessControl=1` or install
+   `nvidia-backlight` for a sysfs backlight node.
+
+### Tray icon doesn't appear
+
+- Your desktop environment must support the StatusNotifierItem (SNI) protocol
+  (KDE Plasma, GNOME with AppIndicator extension, XFCE, Sway/swaybar, etc.).
+- On GNOME, install the
+  [AppIndicator Extension](https://extensions.gnome.org/extension/615/appindicator-support/).
+
+### DDC commands are slow
+
+- Twinkle uses `--sleep-multiplier 0.5` by default for a balance of speed and
+  reliability. If you see errors, the I2C bus may be busy. Avoid running
+  `ddcutil` from other tools simultaneously.
+
+## Repository Structure
+
+```
+twinkle-linux/
+├── README.md              This file
+├── LICENSE                MIT license
+├── twinkle-rust/          Primary Rust implementation (GTK4 + ksni)
+│   ├── Cargo.toml
+│   ├── src/               Application source
+│   └── data/              .desktop file, icons
+└── twinkle-cpp/           C++23/26 implementation (work in progress)
+```
 
 ## License
 
-MIT License. See [LICENSE](LICENSE) for details.
+This project is licensed under the [MIT License](LICENSE).
+
+---
+
+Built by [Edwin Barczynski](https://github.com/ebarczynski) and contributors.
