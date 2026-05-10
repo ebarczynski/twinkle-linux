@@ -214,7 +214,6 @@ void BrightnessPopup::connect_override() {
 void BrightnessPopup::connect_card_slider(MonitorCard& card, [[maybe_unused]] std::string monitor_id) {
     if (!card.adjustment || !card.value_label) return;
 
-    auto* ddc_ptr = ddc_.get();
     auto* mid = new std::string(std::move(monitor_id));
     g_object_set_data_full(G_OBJECT(card.adjustment), "monitor_id", mid,
         [](gpointer p) { delete static_cast<std::string*>(p); });

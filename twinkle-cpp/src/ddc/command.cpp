@@ -136,7 +136,7 @@ std::optional<uint16_t> CommandExecutor::parse_vcp_value(std::string_view output
         if (pos == std::string_view::npos) return std::nullopt;
         pos += 8; // skip "value = "
     } else {
-        pos += 17; // skip "current value = "
+        pos += 16; // skip "current value = "
     }
 
     // Parse number
