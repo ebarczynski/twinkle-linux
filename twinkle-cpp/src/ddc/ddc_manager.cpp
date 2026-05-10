@@ -159,8 +159,8 @@ DDCVoid DDCManager::set_backlight_dbus(std::string_view backlight_name, uint32_t
 
         auto proxy = sdbus::createProxy(
             *connection,
-            sdbus::ServiceName{"org.freedesktop.login1"},
-            sdbus::ObjectPath{"/org/freedesktop/login1/session/auto"}
+            "org.freedesktop.login1",
+            "/org/freedesktop/login1/session/auto"
         );
 
         // SetBrightness takes: (type string, name string, value uint32)

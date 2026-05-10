@@ -22,7 +22,7 @@ TrayIcon::TrayIcon(std::shared_ptr<ddc::DDCManager> ddc,
         static int instance_id = 0;
         auto object_path = std::format("/org/freedesktop/StatusNotifierItem/twinkle_{}", instance_id++);
 
-        sni_object_ = sdbus::createObject(*connection_, sdbus::ObjectPath{object_path});
+        sni_object_ = sdbus::createObject(*connection_, object_path);
 
         // Register the StatusNotifierItem interface
         sni_object_->registerMethod("Activate")
@@ -93,8 +93,8 @@ TrayIcon::TrayIcon(std::shared_ptr<ddc::DDCManager> ddc,
         // Register with the StatusNotifierWatcher
         auto watcher_proxy = sdbus::createProxy(
             *connection_,
-            sdbus::ServiceName{"org.freedesktop.StatusNotifierWatcher"},
-            sdbus::ObjectPath{"/StatusNotifierWatcher"});
+            "org.freedesktop.StatusNotifierWatcher",
+            "/StatusNotifierWatcher");
 
         auto service_name = connection_->getUniqueName();
         watcher_proxy->callMethod("RegisterStatusNotifierItem")

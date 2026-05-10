@@ -32,16 +32,4 @@ std::string Logger::timestamp() {
     return ss.str();
 }
 
-constexpr std::string_view Logger::level_str(LogLevel l) noexcept {
-    switch (l) {
-        case LogLevel::Trace:    return "TRACE";
-        case LogLevel::Debug:    return "DEBUG";
-        case LogLevel::Info:     return "INFO";
-        case LogLevel::Warning:  return "WARN";
-        case LogLevel::Error:    return "ERROR";
-        case LogLevel::Critical: return "CRIT";
-    }
-    return "????";
-}
-
 } // namespace twinkle::core

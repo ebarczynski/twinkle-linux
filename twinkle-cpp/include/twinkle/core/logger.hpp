@@ -29,12 +29,13 @@ public:
         if (level < level_) return;
         auto msg = fmt::format(fmt, std::forward<Args>(args)...);
         auto ts = timestamp();
+        auto lvl = level_str(level);
         std::lock_guard lock(mutex_);
         if (console_enabled_) {
-            fmt::print(stderr, "[{}] [{}] {}\n", ts, level_str(level), msg);
+            fmt::print(stderr, "[{}] [{}] {}\n", ts, lvl, msg);
         }
         if (file_.is_open()) {
-            fmt::print(file_, "[{}] [{}] {}\n", ts, level_str(level), msg);
+            file_ << "[" << ts << "] [" << lvl << "] " << msg << "\n";
             file_.flush();
         }
     }
@@ -59,7 +60,18 @@ public:
 private:
     Logger() = default;
     static std::string timestamp();
-    static constexpr std::string_view level_str(LogLevel l) noexcept;
+
+    static constexpr std::string_view level_str(LogLevel l) noexcept {
+        switch (l) {
+            case LogLevel::Trace:    return "TRACE";
+            case LogLevel::Debug:    return "DEBUG";
+            case LogLevel::Info:     return "INFO";
+            case LogLevel::Warning:  return "WARN";
+            case LogLevel::Error:    return "ERROR";
+            case LogLevel::Critical: return "CRIT";
+        }
+        return "????";
+    }
 
     std::ofstream file_;
     LogLevel level_{LogLevel::Info};
