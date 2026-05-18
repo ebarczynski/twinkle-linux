@@ -76,6 +76,8 @@ pub struct UIConfig {
     pub preset_values: Vec<u16>,
     /// Preset labels (corresponds to preset_values)
     pub preset_labels: Vec<String>,
+    /// Software filter level (0 = off, 1-100 = dimming percentage via gamma)
+    pub software_filter_level: u8,
 }
 
 impl Default for UIConfig {
@@ -92,6 +94,7 @@ impl Default for UIConfig {
                 "Sunny".into(),
                 "Full Sun".into(),
             ],
+            software_filter_level: 0,
         }
     }
 }
@@ -107,6 +110,8 @@ pub struct BehaviorConfig {
     pub restore_brightness: bool,
     /// Enable notifications
     pub enable_notifications: bool,
+    /// Minimum brightness percentage to prevent backlight shutoff (0 = disabled, typical: 1)
+    pub min_brightness: u16,
 }
 
 impl Default for BehaviorConfig {
@@ -116,6 +121,7 @@ impl Default for BehaviorConfig {
             remember_brightness: true,
             restore_brightness: true,
             enable_notifications: true,
+            min_brightness: 1, // Prevent 0% which kills backlight
         }
     }
 }

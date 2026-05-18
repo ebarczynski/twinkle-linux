@@ -215,10 +215,16 @@ impl TrayIcon {
                     }
                     TrayCommand::SetAllBrightness(value) => {
                         let ddc = ddc_clone.clone();
+                        let config = config_clone.clone();
                         gtk4::glib::spawn_future_local(async move {
+                            let min = {
+                                let cfg = config.lock().await;
+                                cfg.config().behavior.min_brightness
+                            };
+                            let clamped = value.max(min);
                             let monitors = ddc.get_monitors().await;
                             for m in &monitors {
-                                if let Err(e) = ddc.set_brightness(&m.unique_id(), value).await {
+                                if let Err(e) = ddc.set_brightness(&m.unique_id(), clamped).await {
                                     tracing::warn!(
                                         "Quick set failed on {}: {}",
                                         m.display_name(),

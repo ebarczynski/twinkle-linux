@@ -225,11 +225,38 @@ impl MonitorDetector {
         self._detect_internal_backlights(&mut monitors);
 
         // Detect external DDC/CI monitors
-        tracing::info!("MonitorDetector::detect_monitors() - Acquiring executor lock");
+        tracing::info!(%self.executor, "MonitorDetector::detect_monitors() - Acquiring executor lock");
         let mut executor = self.executor.lock().await;
         tracing::info!("MonitorDetector::detect_monitors() - Calling executor.detect_monitors()");
-        // Use non-brief output for full monitor info
-        let result = executor.detect_monitors().await?;
+
+        // Try full output first, then fallback to --brief
+        let result = match executor.detect_monitors().await {
+            Ok(r) if r.success && !r.stdout.trim().is_empty() => {
+                tracing::info!("Full detect output succeeded ({} bytes)", r.stdout.len());
+                r
+            }
+            Ok(r) => {
+                // Full output was empty or failed — try brief
+                tracing::warn!("Full detect gave empty/unsuccessful result, trying --brief");
+                match executor.detect_monitors_brief().await {
+                    Ok(brief) => brief,
+                    Err(e) => {
+                        tracing::warn!("Brief detect also failed: {}", e);
+                        return Err(e);
+                    }
+                }
+            }
+            Err(e) => {
+                tracing::warn!("Full detect failed: {}, trying --brief", e);
+                match executor.detect_monitors_brief().await {
+                    Ok(brief) => brief,
+                    Err(e2) => {
+                        tracing::warn!("Brief detect also failed: {}", e2);
+                        return Err(e);
+                    }
+                }
+            }
+        };
 
         drop(executor);
         tracing::info!("MonitorDetector::detect_monitors() - Released executor lock");
@@ -304,6 +331,7 @@ impl MonitorDetector {
     }
 
     /// Parse the output from `ddcutil detect` (full output, not --brief).
+    /// Also handles --brief output as fallback.
     async fn _parse_detect_output(&self, output: &str) -> DDCResult<Vec<Monitor>> {
         tracing::info!(
             "_parse_detect_output() - Starting to parse {} lines",
@@ -318,13 +346,64 @@ impl MonitorDetector {
         let model_re = Regex::new(r"Model:\s*(.+)").unwrap();
         let serial_re = Regex::new(r"Serial number:\s*(.+)").unwrap();
         let mfg_re = Regex::new(r"Mfg id:\s*(.+)").unwrap();
+        let edid_re = Regex::new(r"EDID synopsys:\s*(.+)").unwrap();
         // Brief output fallback: "Monitor:           LEN T24i-20"
         let monitor_brief_re = Regex::new(r"Monitor:\s*(.+)").unwrap();
+        // Product name fallback: "Product name:      PA278CFRV"
+        let product_re = Regex::new(r"Product name:\s*(.+)").unwrap();
+        // Brief format combined line: "Display 1  I2C bus: /dev/i2c-5  Monitor: ASU PA278CFRV"
+        let brief_line_re = Regex::new(r"I2C bus:\s*/dev/i2c-(\d+).*Monitor:\s*(.+)").unwrap();
 
         let lines: Vec<&str> = output.lines().collect();
         let mut i = 0;
 
         tracing::info!("_parse_detect_output() - Starting line-by-line parsing");
+
+        // First pass: try to parse brief-format combined lines
+        // (ddcutil detect --brief puts everything on one line per display)
+        let mut brief_parsed = false;
+        for line in &lines {
+            if let Some(caps) = brief_line_re.captures(line) {
+                brief_parsed = true;
+                let bus: i32 = caps.get(1).unwrap().as_str().parse().unwrap_or(-1);
+                let mon_str = caps.get(2).unwrap().as_str().trim();
+                tracing::info!("_parse_detect_output() - Brief line: bus={}, monitor={}", bus, mon_str);
+                let mut monitor = Monitor::new(bus);
+                // Brief format is "MFG Model" — split on first space
+                if let Some(space_pos) = mon_str.find(' ') {
+                    monitor.manufacturer = Self::_clean_manufacturer(&mon_str[..space_pos]);
+                    monitor.model = mon_str[space_pos + 1..].trim().to_string();
+                } else {
+                    monitor.model = mon_str.to_string();
+                }
+                monitor.model = monitor.model.trim().to_string();
+
+                // Get capabilities
+                match self._get_monitor_capabilities(bus).await {
+                    Ok(capabilities) => {
+                        monitor.capabilities = capabilities;
+                    }
+                    Err(e) => {
+                        tracing::warn!(
+                            "Skipping monitor on bus {}: capabilities failed ({})",
+                            bus, e
+                        );
+                        continue;
+                    }
+                }
+                monitors.push(monitor);
+            }
+        }
+
+        if brief_parsed {
+            tracing::info!(
+                "_parse_detect_output() - Brief format parsed {} monitors",
+                monitors.len()
+            );
+            return Ok(monitors);
+        }
+
+        // Full output parsing (line-by-line, multi-line per display)
         while i < lines.len() {
             let line = lines[i];
 
@@ -333,8 +412,8 @@ impl MonitorDetector {
                 tracing::info!("_parse_detect_output() - Found monitor on bus {}", bus);
                 let mut monitor = Monitor::new(bus);
 
-                // Look for monitor info in following lines (up to 20 lines ahead)
-                for line in lines.iter().take(i + 20).skip(i + 1) {
+                // Look for monitor info in following lines (up to 30 lines ahead)
+                for line in lines.iter().take(i + 30).skip(i + 1) {
                     let subj = *line;
 
                     // Stop if we hit the next display entry
@@ -358,7 +437,22 @@ impl MonitorDetector {
                     if let Some(caps) = mfg_re.captures(subj) {
                         let val = caps.get(1).unwrap().as_str().trim();
                         if !val.is_empty() {
-                            monitor.manufacturer = val.to_string();
+                            monitor.manufacturer = Self::_clean_manufacturer(val);
+                        }
+                    }
+                    if let Some(caps) = edid_re.captures(subj) {
+                        let val = caps.get(1).unwrap().as_str().trim();
+                        if !val.is_empty() {
+                            monitor.edid_data = val.to_string();
+                        }
+                    }
+                    // Product name fallback (some monitors report this instead of Model)
+                    if monitor.model == "Unknown Monitor" {
+                        if let Some(caps) = product_re.captures(subj) {
+                            let val = caps.get(1).unwrap().as_str().trim();
+                            if !val.is_empty() {
+                                monitor.model = val.to_string();
+                            }
                         }
                     }
                     // Brief format fallback: "Monitor: LEN T24i-20"
@@ -368,7 +462,8 @@ impl MonitorDetector {
                             if !val.is_empty() {
                                 // Brief format is "MFG Model" — split on first space
                                 if let Some(space_pos) = val.find(' ') {
-                                    monitor.manufacturer = val[..space_pos].to_string();
+                                    monitor.manufacturer =
+                                        Self::_clean_manufacturer(&val[..space_pos]);
                                     monitor.model = val[space_pos + 1..].trim().to_string();
                                 } else {
                                     monitor.model = val.to_string();
@@ -377,6 +472,9 @@ impl MonitorDetector {
                         }
                     }
                 }
+
+                // Clean up model name (remove trailing whitespace, normalize)
+                monitor.model = monitor.model.trim().to_string();
 
                 tracing::info!(
                     "_parse_detect_output() - Getting capabilities for bus {}",
@@ -421,6 +519,27 @@ impl MonitorDetector {
             monitors.len()
         );
         Ok(monitors)
+    }
+
+    /// Clean up manufacturer name: expand known abbreviations, trim whitespace.
+    fn _clean_manufacturer(mfg: &str) -> String {
+        let mfg = mfg.trim();
+        match mfg.to_uppercase().as_str() {
+            "ASU" | "ASUS" => "ASUS".to_string(),
+            "ACI" | "ACR" => "Acer".to_string(),
+            "BNQ" => "BenQ".to_string(),
+            "DEL" => "Dell".to_string(),
+            "GGL" | "GOO" => "Google".to_string(),
+            "GSM" => "LG".to_string(),
+            "HPN" | "HWP" => "HP".to_string(),
+            "LEN" => "Lenovo".to_string(),
+            "NEC" => "NEC".to_string(),
+            "SAM" => "Samsung".to_string(),
+            "SEC" => "Samsung".to_string(),
+            "SNY" => "Sony".to_string(),
+            "VOB" | "VSC" => "ViewSonic".to_string(),
+            _ => mfg.to_string(),
+        }
     }
 
     /// Get capabilities for a specific monitor.

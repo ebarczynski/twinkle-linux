@@ -155,5 +155,8 @@ fn main() {
     let args: Vec<String> = std::env::args().collect();
     app.run_with_args(&args);
 
+    // Reset gamma on all outputs when app exits
+    let _ = crate::ddc::software_filter::SoftwareFilter::reset_all_gamma();
+
     tracing::info!("Twinkle Linux shutdown complete");
 }

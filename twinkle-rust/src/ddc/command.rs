@@ -322,16 +322,30 @@ impl CommandExecutor {
 
     /// Detect monitors on the system.
     /// Uses a longer timeout since detection queries multiple I2C buses.
+    /// Uses full output (not --brief) for complete model/serial/mfg info.
     pub async fn detect_monitors(&mut self) -> DDCResult<CommandResult> {
-        tracing::info!("detect_monitors() - Starting ddcutil detect --brief command");
-        // Use --brief for speed. Brief format: "Monitor: LEN T24i-20"
-        let args = &["--sleep-multiplier", "0.5", "detect", "--brief"];
+        tracing::info!("detect_monitors() - Starting ddcutil detect command");
+        // Full output gives: Model, Serial number, Mfg id on separate lines.
+        // --brief gives only "Monitor: MFG Model" which is less reliable.
+        let args = &["--sleep-multiplier", "0.5", "detect"];
         // Detection is slow (queries all I2C buses), use a longer timeout
         let saved_timeout = self.timeout_secs;
         self.timeout_secs = 5.0;
         let result = self.execute(args).await;
         self.timeout_secs = saved_timeout;
         tracing::info!("detect_monitors() - Command completed");
+        result
+    }
+
+    /// Detect monitors using --brief format as fallback.
+    /// Output format: "Display N  I2C bus:  /dev/i2c-M  Monitor: MFG Model"
+    pub async fn detect_monitors_brief(&mut self) -> DDCResult<CommandResult> {
+        tracing::info!("detect_monitors_brief() - Starting ddcutil detect --brief");
+        let args = &["--sleep-multiplier", "0.5", "detect", "--brief"];
+        let saved_timeout = self.timeout_secs;
+        self.timeout_secs = 5.0;
+        let result = self.execute(args).await;
+        self.timeout_secs = saved_timeout;
         result
     }
 

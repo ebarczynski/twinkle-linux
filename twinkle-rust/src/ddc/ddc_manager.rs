@@ -288,6 +288,7 @@ impl DDCManager {
     /// Set the brightness of a monitor.
     /// For internal displays, writes to /sys/class/backlight/.
     /// For external monitors, uses DDC/CI VCP code 0x10.
+    /// Clamps to minimum_brightness to prevent backlight shutoff.
     pub async fn set_brightness(&self, monitor_id: &str, value: u16) -> DDCResult<()> {
         let monitor = self.get_monitor_by_id(monitor_id).await?;
 
@@ -296,6 +297,19 @@ impl DDCManager {
         }
 
         self.set_vcp(monitor_id, 0x10, value).await
+    }
+
+    /// Set brightness of all monitors.
+    /// Clamps to min to prevent backlight shutoff.
+    pub async fn set_all_brightness(&self, value: u16, min_brightness: u16) -> DDCResult<()> {
+        let monitors = self.get_monitors().await;
+        let clamped = value.max(min_brightness);
+        for m in &monitors {
+            if let Err(e) = self.set_brightness(&m.unique_id(), clamped).await {
+                tracing::warn!("set_all_brightness failed on {}: {}", m.display_name(), e);
+            }
+        }
+        Ok(())
     }
 
     /// Read brightness from kernel backlight sysfs.

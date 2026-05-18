@@ -2,6 +2,7 @@
 
 use crate::core::config::ConfigManager;
 use crate::ddc::monitor::Monitor;
+use crate::ddc::software_filter::SoftwareFilter;
 use crate::ddc::DDCManager;
 use gtk4::glib;
 use gtk4::prelude::*;
@@ -81,6 +82,11 @@ pub struct BrightnessPopup {
     override_row: Box,
     ddc_manager: Arc<DDCManager>,
     config_manager: Arc<Mutex<ConfigManager>>,
+    /// Software filter for sub-minimum dimming via gamma
+    software_filter: Arc<StdMutex<SoftwareFilter>>,
+    /// Software filter slider adjustment
+    filter_adjustment: Adjustment,
+    filter_value_label: Label,
     _css_provider: gtk4::CssProvider,
 }
 
@@ -167,6 +173,55 @@ impl BrightnessPopup {
 
         main_box.append(&override_row);
 
+        // ── Software Filter (Night Dimmer) ──────────────────────
+        // Gamma-based dimming below hardware minimum
+        let filter_section = Box::builder()
+            .orientation(Orientation::Vertical)
+            .css_classes(["filter-section"])
+            .build();
+
+        let filter_header = Box::builder()
+            .orientation(Orientation::Horizontal)
+            .spacing(8)
+            .build();
+        let filter_icon = Label::new(Some("\u{1F319}")); // 🌙
+        filter_icon.set_css_classes(&["moon-icon"]);
+        let filter_title = Label::builder()
+            .label("Night Filter")
+            .css_classes(["filter-title"])
+            .hexpand(true)
+            .xalign(0.0)
+            .build();
+        let filter_value_label = Label::builder()
+            .label("Off")
+            .css_classes(["filter-value"])
+            .build();
+        filter_header.append(&filter_icon);
+        filter_header.append(&filter_title);
+        filter_header.append(&filter_value_label);
+        filter_section.append(&filter_header);
+
+        let filter_slider_row = Box::builder()
+            .orientation(Orientation::Horizontal)
+            .css_classes(["slider-row"])
+            .build();
+        let filter_dim = Label::new(Some("\u{2600}")); // ☀
+        filter_dim.set_css_classes(&["sun-dim-icon"]);
+        let filter_adjustment = Adjustment::new(0.0, 0.0, 100.0, 1.0, 10.0, 0.0);
+        let filter_scale = Scale::builder()
+            .adjustment(&filter_adjustment)
+            .hexpand(true)
+            .draw_value(false)
+            .build();
+        let filter_bright = Label::new(Some("\u{1F319}")); // 🌙
+        filter_bright.set_css_classes(&["moon-icon"]);
+        filter_slider_row.append(&filter_dim);
+        filter_slider_row.append(&filter_scale);
+        filter_slider_row.append(&filter_bright);
+        filter_section.append(&filter_slider_row);
+
+        main_box.append(&filter_section);
+
         // Separator
         let sep = Box::builder().css_classes(["separator"]).build();
         main_box.append(&sep);
@@ -199,6 +254,26 @@ impl BrightnessPopup {
 
         let override_suppress = Arc::new(AtomicBool::new(false));
 
+        // Initialize software filter
+        let mut software_filter = SoftwareFilter::new();
+        software_filter.detect_outputs();
+        let software_filter = Arc::new(StdMutex::new(software_filter));
+
+        // Restore saved filter level from config
+        let saved_filter_level = {
+            let cfg = config_manager.blocking_lock();
+            cfg.config().ui.software_filter_level
+        };
+        if saved_filter_level > 0 {
+            if let Ok(mut sf) = software_filter.lock() {
+                if let Err(e) = sf.set_filter_level(saved_filter_level as f64 / 100.0) {
+                    tracing::warn!("Failed to restore software filter: {}", e);
+                }
+            }
+            filter_adjustment.set_value(saved_filter_level as f64);
+            filter_value_label.set_label(&format!("{}%", saved_filter_level));
+        }
+
         let popup = Self {
             window,
             cards_container,
@@ -209,18 +284,27 @@ impl BrightnessPopup {
             override_row,
             ddc_manager,
             config_manager,
+            software_filter,
+            filter_adjustment,
+            filter_value_label,
             _css_provider: css_provider,
         };
 
-        popup.setup_connections(settings_btn, override_scale);
+        popup.setup_connections(settings_btn, override_scale, filter_scale);
         popup
     }
 
-    fn setup_connections(&self, settings_btn: Button, _override_scale: Scale) {
+    fn setup_connections(
+        &self,
+        settings_btn: Button,
+        _override_scale: Scale,
+        _filter_scale: Scale,
+    ) {
         // Override slider: sends to all monitors after 300ms debounce
         let ddc_manager = self.ddc_manager.clone();
         let override_suppress = self.override_suppress.clone();
         let override_value_label = self.override_value_label.clone();
+        let config_manager = self.config_manager.clone();
 
         connect_slider_debounced(
             &self.override_adjustment,
@@ -228,16 +312,56 @@ impl BrightnessPopup {
             override_suppress,
             move |value| {
                 let ddc_manager = ddc_manager.clone();
+                let config_manager = config_manager.clone();
                 glib::spawn_future_local(async move {
+                    // Get min_brightness from config
+                    let min = {
+                        let cfg = config_manager.blocking_lock();
+                        cfg.config().behavior.min_brightness
+                    };
+                    let clamped = value.max(min);
                     let monitors = ddc_manager.get_monitors().await;
                     for m in &monitors {
-                        if let Err(e) = ddc_manager.set_brightness(&m.unique_id(), value).await {
+                        if let Err(e) =
+                            ddc_manager.set_brightness(&m.unique_id(), clamped).await
+                        {
                             tracing::warn!("Override: failed on {}: {}", m.display_name(), e);
                         }
                     }
                 });
             },
         );
+
+        // Software filter slider: adjusts gamma via xrandr
+        let software_filter = self.software_filter.clone();
+        let filter_value_label = self.filter_value_label.clone();
+        let config_manager = self.config_manager.clone();
+
+        self.filter_adjustment.connect_value_changed(move |adj| {
+            let percent = adj.value() as u8;
+            if percent == 0 {
+                filter_value_label.set_label("Off");
+            } else {
+                filter_value_label.set_label(&format!("{}%", percent));
+            }
+
+            let level = percent as f64 / 100.0;
+            if let Ok(mut sf) = software_filter.lock() {
+                if let Err(e) = sf.set_filter_level(level) {
+                    tracing::warn!("Software filter error: {}", e);
+                }
+            }
+
+            // Save filter level to config
+            let config_manager = config_manager.clone();
+            glib::spawn_future_local(async move {
+                let mut cfg = config_manager.lock().await;
+                cfg.config_mut().ui.software_filter_level = percent;
+                if let Err(e) = cfg.save() {
+                    tracing::warn!("Failed to save filter level: {}", e);
+                }
+            });
+        });
 
         // Settings button
         let config = self.config_manager.clone();
@@ -330,20 +454,27 @@ impl BrightnessPopup {
         let override_adjustment = self.override_adjustment.clone();
         let override_suppress = self.override_suppress.clone();
         let override_value_label = self.override_value_label.clone();
+        let config_manager = self.config_manager.clone();
 
         glib::spawn_future_local(async move {
             let monitors = ddc_manager.get_monitors().await;
-
             // Clear existing children
             while let Some(child) = cards_container.first_child() {
                 cards_container.remove(&child);
             }
 
+            // Get min_brightness from config
+            let min_brightness = {
+                let cfg = config_manager.blocking_lock();
+                cfg.config().behavior.min_brightness
+            };
+
             for monitor in &monitors {
                 let brightness = ddc_manager
                     .get_brightness(&monitor.unique_id())
                     .await
-                    .unwrap_or(50);
+                    .unwrap_or(50)
+                    .max(min_brightness);
 
                 let (card_widget, _card, adjustment) = Self::build_card(monitor, brightness);
 
@@ -356,17 +487,16 @@ impl BrightnessPopup {
                     .css_classes(["brightness-value"])
                     .build();
 
-                // Reuse the value_label from the card — get it from the card widget
-                // We need to find the brightness-value label in the card
-                // Simpler: just create a hidden label to track and update the visible one
                 let visible_label = find_brightness_label(&card_widget);
                 let vl = visible_label.unwrap_or(value_label);
 
+                let min = min_brightness;
                 connect_slider_debounced(&adjustment, vl, suppress, move |value| {
                     let ddc_manager = ddc_mgr.clone();
                     let monitor_id = monitor_id.clone();
                     glib::spawn_future_local(async move {
-                        if let Err(e) = ddc_manager.set_brightness(&monitor_id, value).await {
+                        let clamped = value.max(min);
+                        if let Err(e) = ddc_manager.set_brightness(&monitor_id, clamped).await {
                             tracing::error!("Failed to set brightness: {}", e);
                         }
                     });
@@ -381,7 +511,7 @@ impl BrightnessPopup {
                 let mut count: u16 = 0;
                 for m in &monitors {
                     if let Ok(b) = ddc_manager.get_brightness(&m.unique_id()).await {
-                        sum += b;
+                        sum += b.max(min_brightness);
                         count += 1;
                     }
                 }
@@ -407,6 +537,17 @@ impl BrightnessPopup {
     /// Get the window widget.
     pub fn widget(&self) -> &Window {
         &self.window
+    }
+}
+
+impl Drop for BrightnessPopup {
+    fn drop(&mut self) {
+        // Reset gamma when popup is destroyed (app exit)
+        if let Ok(sf) = self.software_filter.lock() {
+            if let Err(e) = sf.reset_gamma() {
+                tracing::warn!("Failed to reset gamma on drop: {}", e);
+            }
+        }
     }
 }
 

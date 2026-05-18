@@ -332,3 +332,40 @@ headerbar {
 headerbar label {
     color: #ffffff;
 }
+
+/* ─── Software Filter (Night Dimmer) ─── */
+.filter-section {
+    background-color: #1e1e3a;
+    border-radius: 10px;
+    padding: 10px 12px;
+    margin-top: 6px;
+}
+
+.filter-title {
+    color: #ffffff;
+    font-size: 11px;
+    font-weight: 600;
+}
+
+.filter-value {
+    color: #9fa8ff;
+    font-size: 13px;
+    font-weight: 700;
+    font-family: monospace;
+    min-width: 36px;
+}
+
+.moon-icon {
+    color: #9fa8ff;
+    font-size: 12px;
+}
+
+/* Filter slider uses a cooler blue-purple to distinguish from brightness */
+.filter-section scale highlight {
+    background: #9fa8ff;
+}
+
+.filter-section scale slider {
+    background: #9fa8ff;
+    border: 2px solid #1a1a2e;
+}
