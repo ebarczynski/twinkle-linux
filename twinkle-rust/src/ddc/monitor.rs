@@ -225,7 +225,7 @@ impl MonitorDetector {
         self._detect_internal_backlights(&mut monitors);
 
         // Detect external DDC/CI monitors
-        tracing::info!(%self.executor, "MonitorDetector::detect_monitors() - Acquiring executor lock");
+        tracing::info!("MonitorDetector::detect_monitors() - Acquiring executor lock");
         let mut executor = self.executor.lock().await;
         tracing::info!("MonitorDetector::detect_monitors() - Calling executor.detect_monitors()");
 
