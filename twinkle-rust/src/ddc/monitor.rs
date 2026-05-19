@@ -235,7 +235,7 @@ impl MonitorDetector {
                 tracing::info!("Full detect output succeeded ({} bytes)", r.stdout.len());
                 r
             }
-            Ok(r) => {
+            Ok(_r) => {
                 // Full output was empty or failed — try brief
                 tracing::warn!("Full detect gave empty/unsuccessful result, trying --brief");
                 match executor.detect_monitors_brief().await {
@@ -553,7 +553,6 @@ impl MonitorDetector {
             "SAM" => "Samsung".to_string(),
             "SEC" => "Samsung".to_string(),
             "SNY" => "Sony".to_string(),
-            "ASU" => "ASUS".to_string(),
             "VOB" | "VSC" => "ViewSonic".to_string(),
             _ => mfg.to_string(),
         }

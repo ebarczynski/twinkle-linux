@@ -23,11 +23,13 @@ struct MonitorCard {
 }
 
 /// Connect a scale with simple debounce: send value only after 300ms of inactivity.
+/// Note: send_fn runs on the GLib main thread via timeout_add_local, so Send+Sync
+/// is NOT required. This allows closures capturing GTK widgets.
 fn connect_slider_debounced(
     adjustment: &Adjustment,
     value_label: Label,
     suppress: Arc<AtomicBool>,
-    send_fn: impl Fn(u16) + Clone + Send + Sync + 'static,
+    send_fn: impl Fn(u16) + Clone + 'static,
 ) {
     let pending_value = Arc::new(AtomicU16::new(0));
     let debounce_id: Arc<StdMutex<Option<u32>>> = Arc::new(StdMutex::new(None));
