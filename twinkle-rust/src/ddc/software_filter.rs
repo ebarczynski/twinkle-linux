@@ -14,8 +14,8 @@ pub struct SoftwareFilter {
     /// Current filter level: 0.0 = no filter (100% passthrough), 1.0 = maximum dimming.
     /// Maps to gamma: gamma = 1.0 - (filter_level * 0.9) so we never go fully black.
     filter_level: f64,
-    /// XRandR output name (e.g. "DP-1", "HDMI-0")
-    output_name: String,
+    /// XRandR output names for all connected displays
+    output_names: Vec<String>,
 }
 
 impl SoftwareFilter {
@@ -23,17 +23,15 @@ impl SoftwareFilter {
     pub fn new() -> Self {
         Self {
             filter_level: 0.0,
-            output_name: String::new(),
+            output_names: Vec::new(),
         }
     }
 
-    /// Detect XRandR outputs and store the first connected one.
+    /// Detect XRandR outputs and store all connected ones.
     pub fn detect_outputs(&mut self) -> Vec<String> {
         let outputs = Self::get_xrandr_outputs();
-        if self.output_name.is_empty() {
-            if let Some(first) = outputs.first() {
-                self.output_name = first.clone();
-            }
+        if self.output_names.is_empty() {
+            self.output_names = outputs.clone();
         }
         outputs
     }
@@ -62,11 +60,6 @@ impl SoftwareFilter {
 
         tracing::info!("Detected XRandR outputs: {:?}", outputs);
         outputs
-    }
-
-    /// Set the target output name.
-    pub fn set_output(&mut self, output: &str) {
-        self.output_name = output.to_string();
     }
 
     /// Get the current filter level (0.0 to 1.0).
@@ -98,55 +91,58 @@ impl SoftwareFilter {
         Ok(())
     }
 
-    /// Apply a gamma value to the configured output via xrandr.
+    /// Apply a gamma value to ALL connected outputs via xrandr.
     fn apply_gamma(&self, gamma: f64) -> Result<(), String> {
-        if self.output_name.is_empty() {
-            return Err("No XRandR output configured".to_string());
+        if self.output_names.is_empty() {
+            return Err("No XRandR outputs configured".to_string());
         }
 
         let gamma_str = format!("{:.4}", gamma);
+        let gamma_arg = format!("{}:{}:{}", gamma_str, gamma_str, gamma_str);
 
-        tracing::info!(
-            "Applying gamma {} to output {}",
-            gamma_str,
-            self.output_name
-        );
+        for output_name in &self.output_names {
+            tracing::info!("Applying gamma {} to output {}", gamma_str, output_name);
 
-        let output = Command::new("xrandr")
-            .args([
-                "--output",
-                &self.output_name,
-                "--gamma",
-                &format!("{}:{}:{}", gamma_str, gamma_str, gamma_str),
-            ])
-            .output()
-            .map_err(|e| format!("Failed to run xrandr: {}", e))?;
+            let output = Command::new("xrandr")
+                .args(["--output", output_name, "--gamma", &gamma_arg])
+                .output()
+                .map_err(|e| format!("Failed to run xrandr: {}", e))?;
 
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            return Err(format!("xrandr gamma failed: {}", stderr.trim()));
+            if !output.status.success() {
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                tracing::warn!(
+                    "xrandr gamma failed on {}: {}",
+                    output_name,
+                    stderr.trim()
+                );
+            }
         }
 
         Ok(())
     }
 
-    /// Reset gamma to normal (1.0:1.0:1.0) on the configured output.
+    /// Reset gamma to normal (1.0:1.0:1.0) on ALL outputs.
     pub fn reset_gamma(&self) -> Result<(), String> {
-        if self.output_name.is_empty() {
-            // No output configured, nothing to reset
+        if self.output_names.is_empty() {
             return Ok(());
         }
 
-        tracing::info!("Resetting gamma on output {}", self.output_name);
+        for output_name in &self.output_names {
+            tracing::info!("Resetting gamma on output {}", output_name);
 
-        let output = Command::new("xrandr")
-            .args(["--output", &self.output_name, "--gamma", "1.0:1.0:1.0"])
-            .output()
-            .map_err(|e| format!("Failed to run xrandr: {}", e))?;
+            let output = Command::new("xrandr")
+                .args(["--output", output_name, "--gamma", "1.0:1.0:1.0"])
+                .output()
+                .map_err(|e| format!("Failed to run xrandr: {}", e))?;
 
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            return Err(format!("xrandr gamma reset failed: {}", stderr.trim()));
+            if !output.status.success() {
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                tracing::warn!(
+                    "xrandr gamma reset failed on {}: {}",
+                    output_name,
+                    stderr.trim()
+                );
+            }
         }
 
         Ok(())

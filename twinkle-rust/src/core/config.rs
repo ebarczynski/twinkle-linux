@@ -53,6 +53,11 @@ pub struct GeneralConfig {
     pub language: String,
 }
 
+/// Default minimum brightness to prevent backlight shutoff.
+fn default_min_brightness() -> u16 {
+    1
+}
+
 impl Default for GeneralConfig {
     fn default() -> Self {
         Self {
@@ -77,6 +82,7 @@ pub struct UIConfig {
     /// Preset labels (corresponds to preset_values)
     pub preset_labels: Vec<String>,
     /// Software filter level (0 = off, 1-100 = dimming percentage via gamma)
+    #[serde(default)]
     pub software_filter_level: u8,
 }
 
@@ -111,6 +117,7 @@ pub struct BehaviorConfig {
     /// Enable notifications
     pub enable_notifications: bool,
     /// Minimum brightness percentage to prevent backlight shutoff (0 = disabled, typical: 1)
+    #[serde(default = "default_min_brightness")]
     pub min_brightness: u16,
 }
 

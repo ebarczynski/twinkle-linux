@@ -76,6 +76,8 @@ pub struct BrightnessPopup {
     window: Window,
     cards_container: Box,
     cards: Vec<MonitorCard>,
+    /// Shared list of per-card (monitor_id, adjustment, value_label, suppress) for sync
+    card_adjustments: Arc<std::sync::Mutex<Vec<(String, Adjustment, Label, Arc<AtomicBool>)>>>,
     override_adjustment: Adjustment,
     override_suppress: Arc<AtomicBool>,
     override_value_label: Label,
@@ -278,6 +280,7 @@ impl BrightnessPopup {
             window,
             cards_container,
             cards: Vec::new(),
+            card_adjustments: Arc::new(std::sync::Mutex::new(Vec::new())),
             override_adjustment,
             override_suppress,
             override_value_label,
@@ -305,6 +308,7 @@ impl BrightnessPopup {
         let override_suppress = self.override_suppress.clone();
         let override_value_label = self.override_value_label.clone();
         let config_manager = self.config_manager.clone();
+        let card_adjustments = self.card_adjustments.clone();
 
         connect_slider_debounced(
             &self.override_adjustment,
@@ -313,6 +317,7 @@ impl BrightnessPopup {
             move |value| {
                 let ddc_manager = ddc_manager.clone();
                 let config_manager = config_manager.clone();
+                let card_adjustments = card_adjustments.clone();
                 glib::spawn_future_local(async move {
                     // Get min_brightness from config
                     let min = {
@@ -326,6 +331,24 @@ impl BrightnessPopup {
                             ddc_manager.set_brightness(&m.unique_id(), clamped).await
                         {
                             tracing::warn!("Override: failed on {}: {}", m.display_name(), e);
+                        }
+                    }
+
+                    // Sync individual card sliders to the override value
+                    if let Ok(cards) = card_adjustments.lock() {
+                        for (_id, adj, lbl, suppress) in cards.iter() {
+                            suppress.store(true, Ordering::SeqCst);
+                            adj.set_value(clamped as f64);
+                            lbl.set_label(&format!("{}%", clamped));
+                            // Clear suppress after a short delay so individual changes work again
+                            let supp = suppress.clone();
+                            glib::timeout_add_local(
+                                std::time::Duration::from_millis(350),
+                                move || {
+                                    supp.store(false, Ordering::SeqCst);
+                                    glib::ControlFlow::Break
+                                },
+                            );
                         }
                     }
                 });
@@ -455,6 +478,7 @@ impl BrightnessPopup {
         let override_suppress = self.override_suppress.clone();
         let override_value_label = self.override_value_label.clone();
         let config_manager = self.config_manager.clone();
+        let card_adjustments = self.card_adjustments.clone();
 
         glib::spawn_future_local(async move {
             let monitors = ddc_manager.get_monitors().await;
@@ -462,6 +486,9 @@ impl BrightnessPopup {
             while let Some(child) = cards_container.first_child() {
                 cards_container.remove(&child);
             }
+
+            // Clear card adjustments for fresh rebuild
+            card_adjustments.lock().unwrap().clear();
 
             // Get min_brightness from config
             let min_brightness = {
@@ -489,6 +516,17 @@ impl BrightnessPopup {
 
                 let visible_label = find_brightness_label(&card_widget);
                 let vl = visible_label.unwrap_or(value_label);
+
+                // Store card adjustment for sync with override slider
+                let adj_clone = adjustment.clone();
+                let vl_clone = vl.clone();
+                let supp_clone = suppress.clone();
+                card_adjustments.lock().unwrap().push((
+                    monitor.unique_id(),
+                    adj_clone,
+                    vl_clone,
+                    supp_clone,
+                ));
 
                 let min = min_brightness;
                 connect_slider_debounced(&adjustment, vl, suppress, move |value| {

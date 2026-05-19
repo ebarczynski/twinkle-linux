@@ -481,24 +481,40 @@ impl MonitorDetector {
                     bus
                 );
                 // Get capabilities for this monitor.
-                // If capabilities fail, the monitor likely doesn't support DDC/CI
-                // (e.g. internal laptop panels detected on I2C). Skip it — internal
-                // displays are handled via /sys/class/backlight/ instead.
+                // Monitors behind USB-C docks may partially support DDC/CI:
+                // detect works but capabilities fails. Include them anyway with
+                // default capabilities so the user can still control brightness.
+                // Only skip if we have zero identification info AND caps fail.
+                let has_identity = monitor.model != "Unknown Monitor"
+                    || !monitor.manufacturer.is_empty()
+                    || !monitor.serial.is_empty();
+
                 match self._get_monitor_capabilities(bus).await {
                     Ok(capabilities) => {
                         monitor.capabilities = capabilities;
                         tracing::info!("_parse_detect_output() - Successfully retrieved capabilities for bus {}", bus);
                     }
                     Err(e) => {
-                        tracing::warn!(
-                            "_parse_detect_output() - Skipping monitor on bus {}: \
-                             capabilities query failed ({}) — likely internal panel, \
-                             use backlight instead",
-                            bus,
-                            e
-                        );
-                        i += 1;
-                        continue;
+                        if has_identity {
+                            // Real monitor detected (has model/mfg/serial) but caps failed.
+                            // Likely behind a USB-C dock. Include with default capabilities.
+                            tracing::warn!(
+                                "_parse_detect_output() - Capabilities failed for bus {} ({}), \
+                                 but monitor identified as '{}' — including with default caps",
+                                bus, e, monitor.display_name()
+                            );
+                            monitor.capabilities = MonitorCapabilities::default();
+                        } else {
+                            // No identity at all — likely internal laptop panel on I2C.
+                            // Skip it; internal displays use /sys/class/backlight/ instead.
+                            tracing::warn!(
+                                "_parse_detect_output() - Skipping bus {}: no identity and \
+                                 capabilities failed ({}) — likely internal panel",
+                                bus, e
+                            );
+                            i += 1;
+                            continue;
+                        }
                     }
                 }
 
@@ -537,6 +553,7 @@ impl MonitorDetector {
             "SAM" => "Samsung".to_string(),
             "SEC" => "Samsung".to_string(),
             "SNY" => "Sony".to_string(),
+            "ASU" => "ASUS".to_string(),
             "VOB" | "VSC" => "ViewSonic".to_string(),
             _ => mfg.to_string(),
         }
