@@ -315,7 +315,7 @@ pub enum ScheduleEvent {
 pub fn spawn_engine(
     ddc: Arc<DDCManager>,
     config_manager: Arc<TokioMutex<ConfigManager>>,
-    tray: Arc<ksni::Handle<crate::ui::tray_icon::TrayState>>,
+    tray: Option<Arc<ksni::Handle<crate::ui::tray_icon::TrayState>>>,
     event_rx: tokio::sync::mpsc::UnboundedReceiver<ScheduleEvent>,
 ) -> tokio::task::JoinHandle<()> {
     tokio::runtime::Handle::current().spawn(async move {
@@ -323,6 +323,10 @@ pub fn spawn_engine(
         let mut last_applied: Option<u16> = None;
         // Some(phase): user overrode brightness during this phase.
         let mut suspended_for: Option<Phase> = None;
+        // Last status string pushed into the tray menu. The tray is only
+        // updated when this changes — some shell AppIndicator implementations
+        // misbehave when the menu layout is re-sent every tick.
+        let mut last_status = String::new();
         let mut event_rx = event_rx;
 
         loop {
@@ -363,25 +367,37 @@ pub fn spawn_engine(
             if !cfg.enabled {
                 last_applied = None;
                 suspended_for = None;
-                let _ = tray
-                    .update(|t| {
-                        t.schedule_enabled = false;
-                        t.schedule_status = "Auto schedule off".to_string();
-                    })
-                    .await;
+                if last_status != "off" {
+                    if let Some(tray) = tray.as_ref() {
+                        let _ = tray
+                            .update(|t| {
+                                t.schedule_enabled = false;
+                                t.schedule_status = "Auto schedule off".to_string();
+                            })
+                            .await;
+                    }
+                    last_status = "off".to_string();
+                }
                 continue;
             }
 
             let now = Local::now();
             let decision = decide(now, &cfg);
             let status = decision.status_line(&cfg);
-            let enabled_flag = true;
-            let _ = tray
-                .update(|t| {
-                    t.schedule_enabled = enabled_flag;
-                    t.schedule_status = status;
-                })
-                .await;
+
+            // Push to the tray only when the rendered status actually changed.
+            if status != last_status {
+                if let Some(tray) = tray.as_ref() {
+                    let s = status.clone();
+                    let _ = tray
+                        .update(|t| {
+                            t.schedule_enabled = true;
+                            t.schedule_status = s;
+                        })
+                        .await;
+                }
+                last_status = status;
+            }
 
             // A manual override is only valid for the phase it was made in.
             if suspended_for == Some(decision.phase) {

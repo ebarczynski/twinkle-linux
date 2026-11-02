@@ -97,7 +97,30 @@ impl DDCManager {
                 let mut monitors = self.monitors.write().await;
                 for monitor in detected_monitors {
                     tracing::info!("Adding monitor: {}", monitor.display_name());
-                    monitors.insert(monitor.unique_id(), monitor);
+                    // Monitors behind docks/MST hubs can expose the same serial
+                    // on several I2C buses — some of them with broken DDC
+                    // (capabilities fail). Keep the candidate with the richest
+                    // capability set instead of blindly last-wins, otherwise a
+                    // dead bus can shadow a working one.
+                    let id = monitor.unique_id();
+                    let caps = monitor.capabilities.supported_vcp_codes.len();
+                    let should_replace = match monitors.get(&id) {
+                        Some(existing) => caps > existing.capabilities.supported_vcp_codes.len(),
+                        None => true,
+                    };
+                    if should_replace {
+                        monitors.insert(id, monitor);
+                    } else {
+                        tracing::info!(
+                            "Duplicate monitor id {} — keeping existing ({} VCP codes >= {})",
+                            id,
+                            monitors
+                                .get(&id)
+                                .map(|m| m.capabilities.supported_vcp_codes.len())
+                                .unwrap_or(0),
+                            caps
+                        );
+                    }
                 }
 
                 let mut initialized = self.initialized.write().await;

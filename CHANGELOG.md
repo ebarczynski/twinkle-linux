@@ -7,7 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Added
+### Fixed (round 2 — on-device feedback)
+- Tray menu rewritten to be shell-safe: PLAIN standard items only with a
+  constant structure. The previous round's checkmark item, disabled info row
+  and dynamic row count are the classic triggers for GNOME AppIndicator
+  extension rendering an EMPTY menu ("box with invisible fonts") and dead
+  clicks. Schedule state now lives in the item label
+  (`Schedule: ON — Day 90% — until 16:26 Evening (Wrocław, Poland)`).
+- Schedule engine pushes tray updates ONLY when the status text changes
+  (was: every 30 s tick — layout churn destabilizes shell menus).
+- Missing tray host (no StatusNotifierWatcher) no longer panics the app;
+  it logs and continues. `TWINKLE_AUTOSHOW=1` opens the popup at startup —
+  useful on tray-less systems and for debugging.
+- The popup's settings gear button actually opens the settings dialog now
+  (it previously only logged the config path).
+- Dark theme detection fallback: when the GNOME color-scheme key is absent
+  (XFCE/KDE/MATE), a `gtk-theme-name` ending in "-dark" (e.g. "Yaru-dark")
+  now also enables the dark preference for native widgets.
+- Monitor deduplication prefers the candidate with the richest capability
+  set. Monitors behind docks/MST hubs expose the same serial on several
+  I2C buses with broken DDC on some of them; blind last-wins could shadow
+  a working bus with a dead one.
+
+### Added (round 1)
 - Day/night brightness schedule: brightness cycles automatically between
   configured night/day/evening levels based on computed sunrise/sunset times
   for a configured location (default: Wrocław, Poland). Pure offline math

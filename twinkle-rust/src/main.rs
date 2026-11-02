@@ -91,6 +91,14 @@ fn build_ui(app: &Application, state: AppState) {
         *popup_arc.lock().unwrap() = Some(popup);
         tracing::info!("BrightnessPopup created");
 
+        // TWINKLE_AUTOSHOW=1: open the popup at startup. Debugging aid that
+        // also makes the app usable on systems without a tray host.
+        if std::env::var("TWINKLE_AUTOSHOW").as_deref() == Ok("1") {
+            if let Some(ref popup) = *popup_arc.lock().unwrap() {
+                popup.popup();
+            }
+        }
+
         tracing::info!("Creating TrayIcon...");
         let tray = TrayIcon::new(&app_clone, popup_arc.clone(), config_manager.clone());
         tracing::info!("TrayIcon created, icon should now be visible in system tray");

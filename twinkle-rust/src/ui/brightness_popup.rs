@@ -456,12 +456,17 @@ impl BrightnessPopup {
             });
         });
 
-        // Settings button
+        // Settings button — opens the settings dialog.
         let config = self.config_manager.clone();
+        let win = self.window.clone();
         settings_btn.connect_clicked(move |_| {
-            let mgr = config.blocking_lock();
-            let path = mgr.config_path();
-            tracing::info!("Config file: {:?}", path);
+            let config = config.clone();
+            let win = win.clone();
+            glib::spawn_future_local(async move {
+                let dialog =
+                    crate::ui::widgets::settings_dialog::SettingsDialog::new(&win, config).await;
+                dialog.present();
+            });
         });
     }
 

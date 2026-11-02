@@ -20,7 +20,7 @@ pub fn apply_theme_preference(theme: &str) {
     let prefer_dark = match theme {
         "dark" => true,
         "light" => false,
-        _ => gnome_prefers_dark(),
+        _ => gnome_prefers_dark() || gtk_theme_name_prefers_dark(),
     };
     if let Some(settings) = gtk4::Settings::default() {
         settings.set_gtk_application_prefer_dark_theme(prefer_dark);
@@ -30,6 +30,19 @@ pub fn apply_theme_preference(theme: &str) {
         theme,
         prefer_dark
     );
+}
+
+/// Fallback for non-GNOME desktops (XFCE/KDE/MATE): many dark themes are
+/// selected via `gtk-theme-name` ending in "-dark" (e.g. "Yaru-dark",
+/// "Adwaita-dark") rather than the GNOME color-scheme key.
+fn gtk_theme_name_prefers_dark() -> bool {
+    gtk4::Settings::default()
+        .map(|s| {
+            s.property::<glib::GString>("gtk-theme-name")
+                .to_lowercase()
+                .ends_with("dark")
+        })
+        .unwrap_or(false)
 }
 
 /// Read the GNOME color-scheme preference, tolerating non-GNOME desktops.

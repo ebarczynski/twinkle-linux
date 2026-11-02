@@ -11,7 +11,7 @@
 use crate::ui::brightness_popup::BrightnessPopup;
 use gtk4::prelude::*;
 use gtk4::{AboutDialog, Application, License};
-use ksni::menu::{CheckmarkItem, StandardItem};
+use ksni::menu::StandardItem;
 use ksni::{MenuItem, Tray, TrayMethods};
 use std::sync::{Arc, Mutex};
 
@@ -76,6 +76,12 @@ impl Tray for TrayState {
     }
 
     fn menu(&self) -> Vec<MenuItem<Self>> {
+        // NOTE: keep this menu PLAIN — only StandardItems and separators, with
+        // a constant item structure (same count and order every time). Exotic
+        // item types (checkmarks, disabled info rows) and dynamic row counts
+        // are the classic ways shell AppIndicator implementations (GNOME
+        // extension, MATE, ...) render an EMPTY menu — items turn invisible
+        // and clicks stop matching. State lives in the label text instead.
         let tx_show = self.tx.clone();
         let tx_schedule = self.tx.clone();
         let tx_reload = self.tx.clone();
@@ -83,7 +89,17 @@ impl Tray for TrayState {
         let tx_about = self.tx.clone();
         let tx_quit = self.tx.clone();
 
-        let mut menu = vec![
+        let schedule_label = if self.schedule_enabled {
+            if self.schedule_status.is_empty() {
+                "Day/night schedule: ON".to_string()
+            } else {
+                format!("Schedule: ON — {}", self.schedule_status)
+            }
+        } else {
+            "Day/night schedule: OFF".to_string()
+        };
+
+        vec![
             StandardItem {
                 label: "Brightness Control".into(),
                 icon_name: "display-brightness-symbolic".into(),
@@ -94,10 +110,11 @@ impl Tray for TrayState {
             }
             .into(),
             MenuItem::Separator,
-            // Day/night schedule toggle + live status line
-            CheckmarkItem {
-                label: "Day/night schedule".into(),
-                checked: self.schedule_enabled,
+            // Single toggle item: click flips schedule.enabled. ON shows the
+            // live status inline (e.g. "Schedule: ON — Day 90% — until 16:26
+            // Evening (Wrocław, Poland)").
+            StandardItem {
+                label: schedule_label,
                 icon_name: "day-night-symbolic".into(),
                 activate: Box::new(move |_this: &mut Self| {
                     let _ = tx_schedule.send(TrayCommand::ToggleSchedule);
@@ -105,20 +122,6 @@ impl Tray for TrayState {
                 ..Default::default()
             }
             .into(),
-        ];
-
-        if self.schedule_enabled && !self.schedule_status.is_empty() {
-            menu.push(
-                StandardItem {
-                    label: self.schedule_status.clone(),
-                    enabled: false, // information-only row
-                    ..Default::default()
-                }
-                .into(),
-            );
-        }
-
-        menu.push(
             StandardItem {
                 label: "Reload config".into(),
                 icon_name: "view-refresh-symbolic".into(),
@@ -128,9 +131,7 @@ impl Tray for TrayState {
                 ..Default::default()
             }
             .into(),
-        );
-        menu.push(MenuItem::Separator);
-        menu.push(
+            MenuItem::Separator,
             StandardItem {
                 label: "Settings".into(),
                 icon_name: "preferences-system-symbolic".into(),
@@ -140,8 +141,6 @@ impl Tray for TrayState {
                 ..Default::default()
             }
             .into(),
-        );
-        menu.push(
             StandardItem {
                 label: "About".into(),
                 icon_name: "help-about-symbolic".into(),
@@ -151,9 +150,7 @@ impl Tray for TrayState {
                 ..Default::default()
             }
             .into(),
-        );
-        menu.push(MenuItem::Separator);
-        menu.push(
+            MenuItem::Separator,
             StandardItem {
                 label: "Quit".into(),
                 icon_name: "application-exit-symbolic".into(),
@@ -163,13 +160,12 @@ impl Tray for TrayState {
                 ..Default::default()
             }
             .into(),
-        );
-        menu
+        ]
     }
 }
 
 pub struct TrayIcon {
-    handle: Arc<ksni::Handle<TrayState>>,
+    handle: Option<Arc<ksni::Handle<TrayState>>>,
 }
 
 impl TrayIcon {
@@ -186,28 +182,33 @@ impl TrayIcon {
             schedule_status: String::new(),
         };
 
-        // Spawn the ksni tray service
-        let handle = tokio::task::block_in_place(|| {
+        // Spawn the ksni tray service.
+        //
+        // Non-fatal: a missing StatusNotifierWatcher host (bare Xvfb, unusual
+        // DEs, CI) previously PANICKED the whole app after the popup was
+        // already working. Log loudly and continue without a tray instead.
+        let handle = match tokio::task::block_in_place(|| {
             tokio::runtime::Handle::current().block_on(async { tray_state.spawn().await })
-        });
-
-        let handle = match handle {
+        }) {
             Ok(h) => {
                 tracing::info!("System tray icon created successfully");
-                h
+                Some(Arc::new(h))
             }
             Err(e) => {
-                tracing::error!("Failed to create system tray icon: {}", e);
-                panic!("Failed to create system tray icon: {}", e);
+                tracing::error!(
+                    "Failed to create system tray icon: {} — continuing WITHOUT tray. \
+                     Set TWINKLE_AUTOSHOW=1 to open the popup at startup.",
+                    e
+                );
+                None
             }
         };
-        let handle = Arc::new(handle);
+        let handle_for_commands = handle.clone();
 
         // Process tray commands on the GLib main context.
         let app_clone = app.clone();
         let popup_clone = popup.clone();
         let config_clone = config_manager.clone();
-        let handle_for_commands = handle.clone();
 
         gtk4::glib::timeout_add_local(std::time::Duration::from_millis(100), move || {
             // Drain all pending commands
@@ -231,14 +232,16 @@ impl TrayIcon {
                                 }
                                 enabled
                             };
-                            handle
-                                .update(|t| {
-                                    t.schedule_enabled = enabled;
-                                    if !enabled {
-                                        t.schedule_status = "Auto schedule off".into();
-                                    }
-                                })
-                                .await;
+                            if let Some(handle) = handle.as_ref() {
+                                handle
+                                    .update(|t| {
+                                        t.schedule_enabled = enabled;
+                                        if !enabled {
+                                            t.schedule_status = "Auto schedule off".into();
+                                        }
+                                    })
+                                    .await;
+                            }
                             tracing::info!("Day/night schedule toggled: {}", enabled);
                         });
                     }
@@ -253,14 +256,16 @@ impl TrayIcon {
                                 }
                                 mgr.config().schedule.enabled
                             };
-                            handle
-                                .update(|t| {
-                                    t.schedule_enabled = enabled;
-                                    if !enabled {
-                                        t.schedule_status = "Auto schedule off".into();
-                                    }
-                                })
-                                .await;
+                            if let Some(handle) = handle.as_ref() {
+                                handle
+                                    .update(|t| {
+                                        t.schedule_enabled = enabled;
+                                        if !enabled {
+                                            t.schedule_status = "Auto schedule off".into();
+                                        }
+                                    })
+                                    .await;
+                            }
                             tracing::info!("Config reloaded from disk");
                         });
                     }
@@ -315,8 +320,8 @@ impl TrayIcon {
     }
 
     /// Shared tray handle — the schedule engine uses it to push live
-    /// status updates into the menu.
-    pub fn tray_handle(&self) -> Arc<ksni::Handle<TrayState>> {
+    /// status updates into the menu. `None` when no tray host is available.
+    pub fn tray_handle(&self) -> Option<Arc<ksni::Handle<TrayState>>> {
         self.handle.clone()
     }
 }
