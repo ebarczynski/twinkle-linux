@@ -367,7 +367,11 @@ impl MonitorDetector {
                 brief_parsed = true;
                 let bus: i32 = caps.get(1).unwrap().as_str().parse().unwrap_or(-1);
                 let mon_str = caps.get(2).unwrap().as_str().trim();
-                tracing::info!("_parse_detect_output() - Brief line: bus={}, monitor={}", bus, mon_str);
+                tracing::info!(
+                    "_parse_detect_output() - Brief line: bus={}, monitor={}",
+                    bus,
+                    mon_str
+                );
                 let mut monitor = Monitor::new(bus);
                 // Brief format is "MFG Model" — split on first space
                 if let Some(space_pos) = mon_str.find(' ') {
@@ -386,7 +390,8 @@ impl MonitorDetector {
                     Err(e) => {
                         tracing::warn!(
                             "Skipping monitor on bus {}: capabilities failed ({})",
-                            bus, e
+                            bus,
+                            e
                         );
                         continue;
                     }
@@ -501,7 +506,9 @@ impl MonitorDetector {
                             tracing::warn!(
                                 "_parse_detect_output() - Capabilities failed for bus {} ({}), \
                                  but monitor identified as '{}' — including with default caps",
-                                bus, e, monitor.display_name()
+                                bus,
+                                e,
+                                monitor.display_name()
                             );
                             monitor.capabilities = MonitorCapabilities::default();
                         } else {
@@ -510,7 +517,8 @@ impl MonitorDetector {
                             tracing::warn!(
                                 "_parse_detect_output() - Skipping bus {}: no identity and \
                                  capabilities failed ({}) — likely internal panel",
-                                bus, e
+                                bus,
+                                e
                             );
                             i += 1;
                             continue;

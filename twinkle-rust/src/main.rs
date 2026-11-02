@@ -7,6 +7,7 @@ mod ddc;
 mod ui;
 mod utils;
 
+use crate::core::schedule::ScheduleEvent;
 use crate::core::ConfigManager;
 use crate::ddc::DDCManager;
 use crate::ui::brightness_popup::BrightnessPopup;
@@ -26,6 +27,18 @@ struct AppState {
 fn build_ui(app: &Application, state: AppState) {
     tracing::info!("build_ui: Starting UI construction");
 
+    // Apply the configured theme before any widget is realized (see
+    // `ui::apply_theme_preference` for why native widgets need this).
+    crate::ui::apply_theme_preference(
+        &state
+            .config_manager
+            .blocking_lock()
+            .config()
+            .general
+            .theme
+            .clone(),
+    );
+
     // Create a hidden window. This serves as the toplevel parent for popovers
     // and dialogs. It must exist and be realized for GTK4 popover parenting.
     let window = ApplicationWindow::builder()
@@ -35,14 +48,6 @@ fn build_ui(app: &Application, state: AppState) {
         .default_height(1)
         .decorated(false)
         .build();
-
-    // Realize the window so it gets a GdkSurface, but keep it invisible.
-    // A zero-size undecorated window won't be visible to the user.
-    // We do NOT call window.show() or window.present().
-    // However, GTK4 requires the widget to be realized for popover parenting.
-    // We can't realize without showing in GTK4 easily, so we use a different
-    // approach: the popover will be parented to the window, and we show/hide
-    // the window along with the popover as needed.
 
     #[allow(clippy::arc_with_non_send_sync)]
     let popup_arc: Arc<std::sync::Mutex<Option<BrightnessPopup>>> =
@@ -74,23 +79,74 @@ fn build_ui(app: &Application, state: AppState) {
         };
 
         tracing::info!("Creating BrightnessPopup...");
-        let popup =
-            BrightnessPopup::new(&window_clone, ddc_manager.clone(), config_manager.clone()).await;
-        // No separate refresh_monitors() call — popup() rebuilds cards each time
+        // Manual-change channel: popup → schedule engine.
+        let (manual_tx, manual_rx) = tokio::sync::mpsc::unbounded_channel::<ScheduleEvent>();
+        let popup = BrightnessPopup::new(
+            &window_clone,
+            ddc_manager.clone(),
+            config_manager.clone(),
+            Some(manual_tx),
+        )
+        .await;
         *popup_arc.lock().unwrap() = Some(popup);
         tracing::info!("BrightnessPopup created");
 
         tracing::info!("Creating TrayIcon...");
-        let _tray = TrayIcon::new(
-            &app_clone,
-            popup_arc.clone(),
-            config_manager.clone(),
-            ddc_manager.clone(),
-        );
+        let tray = TrayIcon::new(&app_clone, popup_arc.clone(), config_manager.clone());
         tracing::info!("TrayIcon created, icon should now be visible in system tray");
 
+        // Spawn the day/night schedule engine (sunrise/sunset cycling).
+        let engine = crate::core::schedule::spawn_engine(
+            ddc_manager.clone(),
+            config_manager.clone(),
+            tray.tray_handle(),
+            manual_rx,
+        );
+        // Detach: the engine runs for the app lifetime.
+        drop(engine);
+
+        // Restore last brightness on startup (unless the schedule will
+        // immediately set its own target — avoid fighting it).
+        {
+            let (restore, schedule_enabled, min_brightness) = {
+                let cfg = config_manager.lock().await;
+                (
+                    cfg.config().behavior.restore_brightness,
+                    cfg.config().schedule.enabled,
+                    cfg.config().behavior.min_brightness,
+                )
+            };
+            if restore && !schedule_enabled {
+                let monitors = ddc_manager.get_monitors().await;
+                for m in &monitors {
+                    let last = {
+                        let cfg = config_manager.lock().await;
+                        cfg.config()
+                            .monitors
+                            .iter()
+                            .find(|mc| mc.unique_id == m.unique_id())
+                            .map(|mc| mc.last_brightness)
+                    };
+                    if let Some(b) = last {
+                        if let Err(e) = ddc_manager
+                            .set_brightness(&m.unique_id(), b.max(min_brightness))
+                            .await
+                        {
+                            tracing::warn!(
+                                "Restore brightness failed on {}: {}",
+                                m.display_name(),
+                                e
+                            );
+                        } else {
+                            tracing::info!("Restored {} to {}%", m.display_name(), b);
+                        }
+                    }
+                }
+            }
+        }
+
         // Keep tray alive for the app lifetime
-        std::mem::forget(_tray);
+        std::mem::forget(tray);
 
         initialized.store(true, Ordering::SeqCst);
         tracing::info!("Initialization complete");
@@ -156,7 +212,7 @@ fn main() {
     app.run_with_args(&args);
 
     // Reset gamma on all outputs when app exits
-    let _ = crate::ddc::software_filter::SoftwareFilter::reset_all_gamma();
+    let _ = crate::ddc::SoftwareFilter::reset_all_gamma();
 
     tracing::info!("Twinkle Linux shutdown complete");
 }

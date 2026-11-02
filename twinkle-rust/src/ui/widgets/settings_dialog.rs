@@ -20,6 +20,7 @@ pub struct SettingsDialog {
     enable_presets_switch: Switch,
     /// Behavior tab widgets
     debounce_spin: SpinButton,
+    min_brightness_spin: SpinButton,
     remember_brightness_switch: Switch,
     restore_brightness_switch: Switch,
     /// Advanced tab widgets
@@ -57,8 +58,13 @@ impl SettingsDialog {
             Self::build_general_tab(&original_config);
         let (ui_tab, auto_hide_spin, show_monitor_switch, enable_presets_switch) =
             Self::build_ui_tab(&original_config);
-        let (behavior_tab, debounce_spin, remember_brightness_switch, restore_brightness_switch) =
-            Self::build_behavior_tab(&original_config);
+        let (
+            behavior_tab,
+            debounce_spin,
+            min_brightness_spin,
+            remember_brightness_switch,
+            restore_brightness_switch,
+        ) = Self::build_behavior_tab(&original_config);
         let (advanced_tab, timeout_spin, retries_spin, debug_logging_switch) =
             Self::build_advanced_tab(&original_config);
 
@@ -85,6 +91,7 @@ impl SettingsDialog {
             show_monitor_switch,
             enable_presets_switch,
             debounce_spin,
+            min_brightness_spin,
             remember_brightness_switch,
             restore_brightness_switch,
             timeout_spin,
@@ -104,6 +111,7 @@ impl SettingsDialog {
         let show_monitor_switch = self.show_monitor_switch.clone();
         let enable_presets_switch = self.enable_presets_switch.clone();
         let debounce_spin = self.debounce_spin.clone();
+        let min_brightness_spin = self.min_brightness_spin.clone();
         let remember_brightness_switch = self.remember_brightness_switch.clone();
         let restore_brightness_switch = self.restore_brightness_switch.clone();
         let timeout_spin = self.timeout_spin.clone();
@@ -122,11 +130,16 @@ impl SettingsDialog {
                     config.ui.show_monitor_selector = show_monitor_switch.is_active();
                     config.ui.enable_presets = enable_presets_switch.is_active();
                     config.behavior.debounce_delay_ms = debounce_spin.value() as u32;
+                    config.behavior.min_brightness = min_brightness_spin.value() as u16;
                     config.behavior.remember_brightness = remember_brightness_switch.is_active();
                     config.behavior.restore_brightness = restore_brightness_switch.is_active();
                     config.advanced.command_timeout_secs = timeout_spin.value();
                     config.advanced.max_retries = retries_spin.value() as u32;
                     config.advanced.debug_logging = debug_logging_switch.is_active();
+
+                    // Apply theme immediately so native widgets follow.
+                    let theme = config.general.theme.clone();
+                    crate::ui::apply_theme_preference(&theme);
 
                     if let Err(e) = mgr.save() {
                         tracing::error!("Failed to save settings: {}", e);
@@ -293,7 +306,7 @@ impl SettingsDialog {
         )
     }
 
-    fn build_behavior_tab(config: &AppConfig) -> (Box, SpinButton, Switch, Switch) {
+    fn build_behavior_tab(config: &AppConfig) -> (Box, SpinButton, SpinButton, Switch, Switch) {
         let container = Box::builder()
             .orientation(Orientation::Vertical)
             .spacing(12)
@@ -326,6 +339,34 @@ impl SettingsDialog {
         debounce_row.append(&debounce_spin);
         container.append(&debounce_row);
 
+        let min_label = Label::builder()
+            .label("Minimum brightness (%):")
+            .halign(gtk4::Align::Start)
+            .build();
+        let min_adj = Adjustment::new(
+            f64::from(config.behavior.min_brightness),
+            0.0,
+            50.0,
+            1.0,
+            5.0,
+            0.0,
+        );
+        let min_brightness_spin = SpinButton::builder().adjustment(&min_adj).build();
+        let min_row = Box::builder()
+            .orientation(Orientation::Horizontal)
+            .spacing(8)
+            .build();
+        min_row.append(&min_label);
+        min_row.append(&min_brightness_spin);
+        container.append(&min_row);
+
+        let min_hint = Label::builder()
+            .label("Guards against backlight shutoff at 0%.")
+            .halign(gtk4::Align::Start)
+            .wrap(true)
+            .build();
+        container.append(&min_hint);
+
         let remember_brightness_switch = Switch::builder()
             .active(config.behavior.remember_brightness)
             .build();
@@ -345,6 +386,7 @@ impl SettingsDialog {
         (
             container,
             debounce_spin,
+            min_brightness_spin,
             remember_brightness_switch,
             restore_brightness_switch,
         )

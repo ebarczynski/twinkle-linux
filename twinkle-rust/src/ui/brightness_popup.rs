@@ -1,25 +1,74 @@
 //! Brightness popup window with per-monitor card-based layout.
+//!
+//! Sliders show the live percentage while dragging and snap to the preset
+//! values configured in `ui.preset_values` (rendered as tick marks on the
+//! scale). Manual changes are persisted per monitor (when
+//! `behavior.remember_brightness` is on) and suspend the day/night schedule
+//! engine for the current phase.
 
 use crate::core::config::ConfigManager;
+use crate::core::schedule::ScheduleEvent;
 use crate::ddc::monitor::Monitor;
 use crate::ddc::software_filter::SoftwareFilter;
 use crate::ddc::DDCManager;
+use crate::utils::{normalized_presets, snap_to_preset};
 use gtk4::glib;
 use gtk4::prelude::*;
-use gtk4::{Adjustment, Box, Button, Label, Orientation, Scale, Window};
+use gtk4::{Adjustment, Box, Button, GestureClick, Label, Orientation, Scale, Window};
 use std::sync::atomic::{AtomicBool, AtomicU16, Ordering};
 use std::sync::Arc;
 use std::sync::Mutex as StdMutex;
 use tokio::sync::Mutex;
 
-/// A single monitor card with its own slider.
+/// Per-monitor state needed to sync card sliders with the master slider.
 #[allow(dead_code)]
-struct MonitorCard {
+struct CardEntry {
     monitor_id: String,
-    name_label: Label,
-    value_label: Label,
     adjustment: Adjustment,
+    value_label: Label,
     suppress: Arc<AtomicBool>,
+}
+
+/// Render tick marks for each configured preset value on a scale.
+fn apply_slider_marks(scale: &Scale, presets: &[u16]) {
+    scale.clear_marks();
+    for value in presets {
+        scale.add_mark(
+            f64::from(*value),
+            gtk4::PositionType::Bottom,
+            Some(value.to_string().as_str()),
+        );
+    }
+}
+
+/// Snap the adjustment to the nearest configured preset on pointer release.
+///
+/// GTK scales do not snap natively; the released gesture rounds the final
+/// value to the closest preset. The resulting `set_value` re-triggers the
+/// debounced send path, so the snapped value is what reaches the monitors.
+fn attach_snap_on_release(
+    scale: &Scale,
+    adjustment: &Adjustment,
+    snap_presets: Arc<StdMutex<Vec<u16>>>,
+) {
+    let gesture = GestureClick::new();
+    let adjustment = adjustment.clone();
+    gesture.connect_released(move |_gesture, _n_press, _x, _y| {
+        let presets = match snap_presets.lock() {
+            Ok(p) => p.clone(),
+            Err(_) => return,
+        };
+        if presets.is_empty() {
+            return;
+        }
+        let raw = adjustment.value() as u16;
+        let snapped = snap_to_preset(raw, &presets);
+        if snapped != raw {
+            tracing::debug!("Slider snap: {}% → {}%", raw, snapped);
+            adjustment.set_value(f64::from(snapped));
+        }
+    });
+    scale.add_controller(gesture);
 }
 
 /// Connect a scale with simple debounce: send value only after 300ms of inactivity.
@@ -65,9 +114,8 @@ fn connect_slider_debounced(
             }
             glib::ControlFlow::Break
         });
-        let raw_id: u32 = unsafe { std::mem::transmute(new_id) };
         if let Ok(mut id) = deb.lock() {
-            *id = Some(raw_id);
+            *id = Some(new_id.as_raw());
         }
     });
 }
@@ -77,10 +125,10 @@ fn connect_slider_debounced(
 pub struct BrightnessPopup {
     window: Window,
     cards_container: Box,
-    cards: Vec<MonitorCard>,
-    /// Shared list of per-card (monitor_id, adjustment, value_label, suppress) for sync
-    card_adjustments: Arc<std::sync::Mutex<Vec<(String, Adjustment, Label, Arc<AtomicBool>)>>>,
+    /// Per-monitor slider state for syncing with the master slider.
+    card_entries: Arc<StdMutex<Vec<CardEntry>>>,
     override_adjustment: Adjustment,
+    override_scale: Scale,
     override_suppress: Arc<AtomicBool>,
     override_value_label: Label,
     override_row: Box,
@@ -91,6 +139,11 @@ pub struct BrightnessPopup {
     /// Software filter slider adjustment
     filter_adjustment: Adjustment,
     filter_value_label: Label,
+    /// Current snap values (sorted, deduped config presets), shared with
+    /// all slider snap handlers and refreshed on every popup rebuild.
+    snap_presets: Arc<StdMutex<Vec<u16>>>,
+    /// Notifies the schedule engine about manual brightness changes.
+    manual_tx: Option<tokio::sync::mpsc::UnboundedSender<ScheduleEvent>>,
     _css_provider: gtk4::CssProvider,
 }
 
@@ -99,6 +152,7 @@ impl BrightnessPopup {
         parent: &impl IsA<gtk4::Window>,
         ddc_manager: Arc<DDCManager>,
         config_manager: Arc<Mutex<ConfigManager>>,
+        manual_tx: Option<tokio::sync::mpsc::UnboundedSender<ScheduleEvent>>,
     ) -> Self {
         // Load CSS
         let css_provider = gtk4::CssProvider::new();
@@ -278,12 +332,24 @@ impl BrightnessPopup {
             filter_value_label.set_label(&format!("{}%", saved_filter_level));
         }
 
+        // Initial snap values from config
+        let initial_presets = {
+            let cfg = config_manager.blocking_lock();
+            normalized_presets(
+                &cfg.config().ui.preset_values,
+                cfg.config().behavior.min_brightness,
+            )
+        };
+        apply_slider_marks(&override_scale, &initial_presets);
+        let snap_presets = Arc::new(StdMutex::new(initial_presets));
+        attach_snap_on_release(&override_scale, &override_adjustment, snap_presets.clone());
+
         let popup = Self {
             window,
             cards_container,
-            cards: Vec::new(),
-            card_adjustments: Arc::new(std::sync::Mutex::new(Vec::new())),
+            card_entries: Arc::new(StdMutex::new(Vec::new())),
             override_adjustment,
+            override_scale,
             override_suppress,
             override_value_label,
             override_row,
@@ -292,25 +358,23 @@ impl BrightnessPopup {
             software_filter,
             filter_adjustment,
             filter_value_label,
+            snap_presets,
+            manual_tx,
             _css_provider: css_provider,
         };
 
-        popup.setup_connections(settings_btn, override_scale, filter_scale);
+        popup.setup_connections(settings_btn);
         popup
     }
 
-    fn setup_connections(
-        &self,
-        settings_btn: Button,
-        _override_scale: Scale,
-        _filter_scale: Scale,
-    ) {
+    fn setup_connections(&self, settings_btn: Button) {
         // Override slider: sends to all monitors after 300ms debounce
         let ddc_manager = self.ddc_manager.clone();
         let override_suppress = self.override_suppress.clone();
         let override_value_label = self.override_value_label.clone();
         let config_manager = self.config_manager.clone();
-        let card_adjustments = self.card_adjustments.clone();
+        let card_entries = self.card_entries.clone();
+        let manual_tx = self.manual_tx.clone();
 
         connect_slider_debounced(
             &self.override_adjustment,
@@ -319,7 +383,8 @@ impl BrightnessPopup {
             move |value| {
                 let ddc_manager = ddc_manager.clone();
                 let config_manager = config_manager.clone();
-                let card_adjustments = card_adjustments.clone();
+                let card_entries = card_entries.clone();
+                let manual_tx = manual_tx.clone();
                 glib::spawn_future_local(async move {
                     // Get min_brightness from config
                     let min = {
@@ -329,21 +394,24 @@ impl BrightnessPopup {
                     let clamped = value.max(min);
                     let monitors = ddc_manager.get_monitors().await;
                     for m in &monitors {
-                        if let Err(e) =
-                            ddc_manager.set_brightness(&m.unique_id(), clamped).await
-                        {
+                        if let Err(e) = ddc_manager.set_brightness(&m.unique_id(), clamped).await {
                             tracing::warn!("Override: failed on {}: {}", m.display_name(), e);
                         }
                     }
 
+                    // Notify the schedule engine: manual change wins for this phase
+                    if let Some(tx) = &manual_tx {
+                        let _ = tx.send(ScheduleEvent::ManualChange);
+                    }
+
                     // Sync individual card sliders to the override value
-                    if let Ok(cards) = card_adjustments.lock() {
-                        for (_id, adj, lbl, suppress) in cards.iter() {
-                            suppress.store(true, Ordering::SeqCst);
-                            adj.set_value(clamped as f64);
-                            lbl.set_label(&format!("{}%", clamped));
+                    if let Ok(cards) = card_entries.lock() {
+                        for entry in cards.iter() {
+                            entry.suppress.store(true, Ordering::SeqCst);
+                            entry.adjustment.set_value(clamped as f64);
+                            entry.value_label.set_label(&format!("{}%", clamped));
                             // Clear suppress after a short delay so individual changes work again
-                            let supp = suppress.clone();
+                            let supp = entry.suppress.clone();
                             glib::timeout_add_local(
                                 std::time::Duration::from_millis(350),
                                 move || {
@@ -397,8 +465,14 @@ impl BrightnessPopup {
         });
     }
 
-    /// Build a single monitor card widget.
-    fn build_card(monitor: &Monitor, brightness: u16) -> (Box, MonitorCard, Adjustment) {
+    /// Build a single monitor card widget with preset tick marks and
+    /// snap-on-release behavior.
+    fn build_card(
+        monitor: &Monitor,
+        brightness: u16,
+        presets: &[u16],
+        snap_presets: &Arc<StdMutex<Vec<u16>>>,
+    ) -> (Box, CardEntry, Adjustment) {
         let card = Box::builder()
             .orientation(Orientation::Vertical)
             .css_classes(["monitor-card"])
@@ -450,6 +524,8 @@ impl BrightnessPopup {
             .hexpand(true)
             .draw_value(false)
             .build();
+        apply_slider_marks(&scale, presets);
+        attach_snap_on_release(&scale, &adjustment, snap_presets.clone());
 
         let bright = Label::new(Some("\u{1F506}"));
         bright.set_css_classes(&["sun-icon"]);
@@ -461,18 +537,18 @@ impl BrightnessPopup {
 
         let suppress = Arc::new(AtomicBool::new(false));
         let adjustment_clone = adjustment.clone();
-        let monitor_card = MonitorCard {
+        let card_entry = CardEntry {
             monitor_id: monitor.unique_id(),
-            name_label,
-            value_label,
             adjustment,
+            value_label,
             suppress,
         };
 
-        (card, monitor_card, adjustment_clone)
+        (card, card_entry, adjustment_clone)
     }
 
-    /// Show the popup.
+    /// Show the popup. Rebuilds the monitor cards each time so freshly
+    /// connected displays and edited config presets are picked up.
     pub fn popup(&self) {
         let ddc_manager = self.ddc_manager.clone();
         let cards_container = self.cards_container.clone();
@@ -480,7 +556,10 @@ impl BrightnessPopup {
         let override_suppress = self.override_suppress.clone();
         let override_value_label = self.override_value_label.clone();
         let config_manager = self.config_manager.clone();
-        let card_adjustments = self.card_adjustments.clone();
+        let card_entries = self.card_entries.clone();
+        let snap_presets = self.snap_presets.clone();
+        let override_scale = self.override_scale.clone();
+        let manual_tx = self.manual_tx.clone();
 
         glib::spawn_future_local(async move {
             let monitors = ddc_manager.get_monitors().await;
@@ -489,14 +568,21 @@ impl BrightnessPopup {
                 cards_container.remove(&child);
             }
 
-            // Clear card adjustments for fresh rebuild
-            card_adjustments.lock().unwrap().clear();
+            // Clear card entries for fresh rebuild
+            card_entries.lock().unwrap().clear();
 
-            // Get min_brightness from config
-            let min_brightness = {
+            // Config-driven slider values: sorted, deduped, above min
+            let (presets, min_brightness, remember) = {
                 let cfg = config_manager.blocking_lock();
-                cfg.config().behavior.min_brightness
+                let behavior = &cfg.config().behavior;
+                (
+                    normalized_presets(&cfg.config().ui.preset_values, behavior.min_brightness),
+                    behavior.min_brightness,
+                    behavior.remember_brightness,
+                )
             };
+            *snap_presets.lock().unwrap() = presets.clone();
+            apply_slider_marks(&override_scale, &presets);
 
             for monitor in &monitors {
                 let brightness = ddc_manager
@@ -505,39 +591,54 @@ impl BrightnessPopup {
                     .unwrap_or(50)
                     .max(min_brightness);
 
-                let (card_widget, _card, adjustment) = Self::build_card(monitor, brightness);
+                let (card_widget, entry, adjustment) =
+                    Self::build_card(monitor, brightness, &presets, &snap_presets);
 
                 // Connect slider: debounce 300ms, single monitor
                 let ddc_mgr = ddc_manager.clone();
                 let monitor_id = monitor.unique_id();
-                let suppress = Arc::new(AtomicBool::new(false));
-                let value_label = Label::builder()
-                    .label(format!("{}%", brightness))
-                    .css_classes(["brightness-value"])
-                    .build();
+                let value_label = entry.value_label.clone();
+                let suppress = entry.suppress.clone();
 
-                let visible_label = find_brightness_label(&card_widget);
-                let vl = visible_label.unwrap_or(value_label);
-
-                // Store card adjustment for sync with override slider
-                let adj_clone = adjustment.clone();
-                let vl_clone = vl.clone();
-                let supp_clone = suppress.clone();
-                card_adjustments.lock().unwrap().push((
-                    monitor.unique_id(),
-                    adj_clone,
-                    vl_clone,
-                    supp_clone,
-                ));
+                // Store card entry for sync with override slider
+                card_entries.lock().unwrap().push(CardEntry {
+                    monitor_id: monitor_id.clone(),
+                    adjustment: entry.adjustment.clone(),
+                    value_label: entry.value_label.clone(),
+                    suppress: entry.suppress.clone(),
+                });
 
                 let min = min_brightness;
-                connect_slider_debounced(&adjustment, vl, suppress, move |value| {
+                let config_mgr = config_manager.clone();
+                let manual = manual_tx.clone();
+                connect_slider_debounced(&adjustment, value_label, suppress, move |value| {
                     let ddc_manager = ddc_mgr.clone();
                     let monitor_id = monitor_id.clone();
+                    let config_mgr = config_mgr.clone();
+                    let manual = manual.clone();
                     glib::spawn_future_local(async move {
                         let clamped = value.max(min);
                         if let Err(e) = ddc_manager.set_brightness(&monitor_id, clamped).await {
                             tracing::error!("Failed to set brightness: {}", e);
+                            return;
+                        }
+
+                        // Manual change: suspend the day/night schedule for
+                        // this phase so the user's choice sticks.
+                        if let Some(tx) = &manual {
+                            let _ = tx.send(ScheduleEvent::ManualChange);
+                        }
+
+                        // Remember last brightness per monitor
+                        if remember {
+                            let mut cfg = config_mgr.lock().await;
+                            {
+                                let mcfg = cfg.get_or_create_monitor_config(&monitor_id, "");
+                                mcfg.last_brightness = clamped;
+                            }
+                            if let Err(e) = cfg.save() {
+                                tracing::warn!("Failed to persist brightness: {}", e);
+                            }
                         }
                     });
                 });
@@ -555,10 +656,8 @@ impl BrightnessPopup {
                         count += 1;
                     }
                 }
-                if let Some(avg) = count
-                    .checked_div(1)
-                    .and_then(|_| (count > 0).then_some(sum / count))
-                {
+                if count > 0 {
+                    let avg = sum / count;
                     override_suppress.store(true, Ordering::SeqCst);
                     override_adjustment.set_value(avg as f64);
                     override_value_label.set_label(&format!("{}%", avg));
@@ -588,29 +687,5 @@ impl Drop for BrightnessPopup {
                 tracing::warn!("Failed to reset gamma on drop: {}", e);
             }
         }
-    }
-}
-
-/// Find the brightness-value label inside a card widget.
-fn find_brightness_label(card: &Box) -> Option<Label> {
-    let mut child = card.first_child()?;
-    loop {
-        if let Ok(label) = child.clone().downcast::<Label>() {
-            if label.has_css_class("brightness-value") {
-                return Some(label);
-            }
-        }
-        if let Ok(hbox) = child.clone().downcast::<Box>() {
-            let mut inner = hbox.first_child()?;
-            loop {
-                if let Ok(label) = inner.clone().downcast::<Label>() {
-                    if label.has_css_class("brightness-value") {
-                        return Some(label);
-                    }
-                }
-                inner = inner.next_sibling()?;
-            }
-        }
-        child = child.next_sibling()?;
     }
 }

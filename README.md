@@ -18,11 +18,13 @@ range of hardware without elevated privileges.
 
 - **System tray icon** — lives in your panel via the StatusNotifierItem protocol
   (ksni, pure Rust D-Bus). Click to open the brightness popup.
-- **Per-monitor sliders** — each detected display gets its own brightness card
-  in a dark, card-based GTK4 popup. An "All Monitors" master slider at the top
-  adjusts everything at once.
-- **Quick presets** — right-click the tray icon for one-tap presets:
-  Night (10%), Dusk (20%), Cloudy (40%), Sunny (60%), Full Sun (80%), Max (100%).
+- **Slider with snap points** — the popup gives you an "All Monitors" master
+  slider plus a per-monitor slider. Both show the live percentage while you
+  drag and snap to the brightness values configured in `ui.preset_values`
+  (rendered as tick marks on the scale).
+- **Day/night schedule** — brightness cycles automatically between night,
+  day, and evening levels based on computed sunrise/sunset times for your
+  location (default: Wrocław, Poland). Toggle it from the tray menu.
 - **No root** — backlight is managed through systemd-logind D-Bus; external
   monitors use the `ddcutil` CLI. No `sudo`, no `udev` rules, no group
   membership.
@@ -32,9 +34,12 @@ range of hardware without elevated privileges.
 | Feature | Details |
 |---|---|
 | System tray | StatusNotifierItem via ksni (pure Rust) |
-| Per-monitor sliders | Card-based dark UI, one slider per display |
+| Brightness slider popup | Card-based dark UI, live percentage, snap to configured values |
 | "All Monitors" master | Always visible at the top of the popup |
-| Quick presets | 6 presets from the tray context menu |
+| Config-driven snap points | `ui.preset_values` → tick marks + snap-on-release |
+| Day/night schedule | Sunrise/sunset cycling (NOAA sunrise equation, offline) |
+| Smooth ramps | Transitions interpolate over `schedule.ramp_minutes` |
+| Manual override | Sliders suspend the schedule until the next phase |
 | DDC/CI (external) | HDMI, DisplayPort, USB-C monitors via `ddcutil` |
 | Backlight (internal) | Laptop panels via systemd-logind D-Bus |
 | Debounced I2C | 300 ms debounce to avoid flooding the DDC bus |
@@ -116,11 +121,39 @@ A brightness icon will appear in your system tray.
 | Action | Effect |
 |---|---|
 | Left-click tray icon | Open / close brightness popup |
-| Drag a monitor slider | Adjust that monitor's brightness (debounced) |
+| Drag a slider | Adjust brightness; the label shows the live percentage |
+| Release the slider | Snaps to the nearest configured value (`ui.preset_values`) |
 | Drag "All Monitors" slider | Adjust all monitors simultaneously |
-| Right-click tray icon | Open context menu with quick presets |
-| Select a preset (e.g. "Night 10%") | Set all monitors to that brightness level |
+| Tray menu → "Day/night schedule" | Toggle automatic sunrise/sunset cycling |
+| Tray menu → "Reload config" | Re-read `config.json` without restarting |
 | Click "Quit" in tray menu | Exit the application |
+
+## Day/Night Schedule
+
+When enabled (on by default), Twinkle computes sunrise/sunset for your
+location with the sunrise equation (pure math — works fully offline) and
+cycles three configured brightness levels:
+
+```
+midnight ──── sunrise ──── sunset ──── sunset + evening_duration_min ── midnight
+   Night          Day          Evening                Night
+```
+
+- Manual slider changes suspend the schedule for the current phase, so your
+  choice sticks until the next transition.
+- Each transition ramps linearly over `schedule.ramp_minutes`.
+- The tray menu shows the live status, e.g.
+  `Day 90% — until 16:24 Evening (Wrocław, Poland)`.
+
+Configure in `~/.config/twinkle-linux/config.json` under `"schedule"`:
+latitude/longitude (defaults: Wrocław 51.1079 / 17.0385), the three
+brightness levels, evening duration, and ramp minutes.
+
+To debug the schedule on your machine:
+
+```bash
+cargo run --example schedule_check
+```
 
 ## Architecture
 
@@ -128,18 +161,25 @@ A brightness icon will appear in your system tray.
 twinkle-rust/src/
 ├── main.rs              GTK4 Application + tokio runtime entry point
 ├── ddc/                 DDC/CI subsystem
-│   ├── mod.rs           DDC manager, monitor detection
-│   ├── wrapper.rs       ddcutil CLI wrapper (--brief --sleep-multiplier 0.5)
-│   └── vcp.rs           VCP code definitions (0x10 Brightness)
+│   ├── mod.rs           DDC manager re-exports
+│   ├── ddc_manager.rs   Monitor cache, get/set brightness, VCP access
+│   ├── command.rs       ddcutil CLI wrapper (--brief --sleep-multiplier 0.5)
+│   ├── monitor.rs       Monitor detection + EDID parsing
+│   ├── software_filter.rs  Gamma-based sub-minimum dimming (xrandr)
+│   ├── error.rs         Error types
+│   └── vcp_codes.rs     VCP code definitions (0x10 Brightness)
 ├── ui/                  GTK4 user interface
-│   ├── mod.rs           UI module root
-│   ├── brightness.rs    Brightness popup (card layout, per-monitor sliders)
-│   ├── tray.rs          System tray icon (ksni StatusNotifierItem)
+│   ├── mod.rs           Theme preference (system dark-mode detection)
+│   ├── brightness_popup.rs  Brightness popup (cards, snapping sliders)
+│   ├── tray_icon.rs     System tray icon (ksni StatusNotifierItem)
 │   ├── style.css        Dark theme stylesheet
-│   └── settings.rs      Settings dialog
-└── core/                Core logic
-    ├── mod.rs           Core module root
-    └── config.rs        Config persistence (JSON via serde)
+│   └── widgets/
+│       └── settings_dialog.rs  Settings dialog (General/UI/Behavior/Advanced)
+├── core/                Core logic
+│   ├── mod.rs           Core module root
+│   ├── config.rs        Config persistence (JSON via serde)
+│   └── schedule.rs      Day/night schedule engine + sunrise equation
+└── utils/mod.rs         Helpers (snap-to-preset, formatting)
 ```
 
 ### Channel bridge
@@ -172,19 +212,44 @@ Twinkle Linux stores its configuration at:
 ~/.config/twinkle-linux/config.json
 ```
 
-The file is created automatically on first run with sensible defaults. It
-persists window state, last-known brightness values, and user preferences.
+The file is created automatically on first run with sensible defaults.
+Missing sections fall back to defaults when loading, so old config files
+keep working when new features ship — and unknown fields are ignored.
 
 Example:
 
 ```json
 {
-  "brightness": {
-    "DP-1": 80,
-    "HDMI-A-1": 60
+  "general": {
+    "autostart": false,
+    "theme": "system",
+    "language": "en_US"
+  },
+  "ui": {
+    "preset_values": [10, 20, 40, 60, 80],
+    "preset_labels": ["Night", "Dusk", "Cloudy", "Sunny", "Full Sun"]
+  },
+  "behavior": {
+    "min_brightness": 1,
+    "remember_brightness": true,
+    "restore_brightness": true
+  },
+  "schedule": {
+    "enabled": true,
+    "latitude": 51.1079,
+    "longitude": 17.0385,
+    "location_name": "Wrocław, Poland",
+    "day_brightness": 90,
+    "evening_brightness": 45,
+    "night_brightness": 15,
+    "evening_duration_min": 60,
+    "ramp_minutes": 30
   }
 }
 ```
+
+`ui.preset_values` drives the slider snap points and tick marks in the
+popup. The `schedule` section drives the day/night cycling.
 
 ## Autostart
 
@@ -192,7 +257,7 @@ To launch Twinkle Linux automatically on login, copy the included `.desktop`
 file into your XDG autostart directory:
 
 ```bash
-cp twinkle-rust/data/twinkle-linux.desktop ~/.config/autostart/
+cp packaging/twinkle-linux.desktop ~/.config/autostart/
 ```
 
 Or, if you installed the binary to `~/.local/bin/`:
@@ -258,6 +323,12 @@ twinkle-linux/
 
 This project is licensed under the [MIT License](LICENSE).
 
----
+## Author & Contact
 
-Built by [Edwin Barczynski](https://github.com/ebarczynski) and contributors.
+**Edwin Barczynski** ([@ebarczynski](https://github.com/ebarczynski))
+
+- Repository: [github.com/ebarczynski/twinkle-linux](https://github.com/ebarczynski/twinkle-linux)
+- Issues: [github.com/ebarczynski/twinkle-linux/issues](https://github.com/ebarczynski/twinkle-linux/issues)
+- Email: barczynski.e@gmail.com
+
+---

@@ -2,7 +2,7 @@
 name = "twinkle-linux"
 version = "0.1.0"
 edition = "2021"
-authors = ["Twinkle Linux Contributors"]
+authors = ["Edwin Barczynski <barczynski.e@gmail.com>"]
 description = "GUI application for controlling external monitor brightness via DDC/CI on Linux"
 license = "MIT"
 repository = "https://github.com/ebarczynski/twinkle-linux"

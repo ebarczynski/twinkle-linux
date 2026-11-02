@@ -5,6 +5,52 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- Day/night brightness schedule: brightness cycles automatically between
+  configured night/day/evening levels based on computed sunrise/sunset times
+  for a configured location (default: Wrocław, Poland). Pure offline math
+  (sunrise equation) — no network needed. Validated against
+  sunrise-sunset.org references within ±2 minutes.
+- Smooth ramps: each schedule transition interpolates over
+  `schedule.ramp_minutes` instead of jumping.
+- Tray menu: "Day/night schedule" toggle (checkmark) with live status line
+  (e.g. `Day 90% — until 16:26 Evening (Wrocław, Poland)`).
+- Tray menu: "Reload config" — re-reads `config.json` without restarting.
+- Slider snapping: sliders snap to the nearest `ui.preset_values` entry on
+  release and show tick marks at the configured values, with the live
+  percentage label while dragging.
+- Manual override: dragging a slider suspends the schedule for the current
+  phase; it resumes automatically at the next sunrise/sunset transition.
+- Restore last brightness on startup (existing `restore_brightness` setting
+  is now actually implemented) and persist per-monitor brightness on change
+  (`remember_brightness`).
+- Minimum brightness setting in the Behavior tab of the settings dialog.
+- Author/contact information: About dialog, tray tooltip, Cargo metadata and
+  README now carry the GitHub handle/repository and email.
+
+### Changed
+- Tray menu no longer shows a hardcoded selectable list of brightness
+  values — the slider popup (with config-driven snapping) is the brightness
+  control.
+- Config loading is now forward/backward compatible: missing sections fall
+  back to defaults (`#[serde(default)]`), unknown fields are ignored —
+  new config sections never break existing setups.
+- Theme setting is applied at startup and on settings save: native GTK
+  widgets (dialog buttons, spinbuttons, comboboxes) follow dark mode via
+  `gtk-application-prefer-dark-theme` and the GNOME `color-scheme` setting.
+
+### Fixed
+- Unreadable button labels on dark themes: theme gradients painted over the
+  app's button background (`background-color` alone cannot override themed
+  `background-image`). All button rules now clear `background-image`, and
+  explicit label/headerbar colors are set.
+- Fragile DOM walk to find per-card value labels removed; card entries keep
+  direct references instead.
+- `glib::SourceId` handled via `as_raw()` instead of `transmute`.
+- Headless-safe software filter test (was failing on machines without xrandr).
+
 ## [0.1.0] - 2025-05-09
 
 ### Added

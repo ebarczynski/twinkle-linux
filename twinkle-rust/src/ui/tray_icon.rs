@@ -3,27 +3,46 @@
 //! GTK4 objects are not Send/Sync, so we use an async channel bridged
 //! to the GLib main context. The ksni tray runs on a tokio background
 //! task, and sends commands that are processed on the GTK main thread.
+//!
+//! The tray menu intentionally contains NO brightness value list — the
+//! slider popup (left click / "Brightness Control") is the brightness
+//! control, snapping to the values configured in `ui.preset_values`.
 
 use crate::ui::brightness_popup::BrightnessPopup;
 use gtk4::prelude::*;
 use gtk4::{AboutDialog, Application, License};
-use ksni::menu::StandardItem;
+use ksni::menu::{CheckmarkItem, StandardItem};
 use ksni::{MenuItem, Tray, TrayMethods};
 use std::sync::{Arc, Mutex};
+
+/// Project contact information (GitHub handle / repository).
+pub const REPO_URL: &str = "https://github.com/ebarczynski/twinkle-linux";
+pub const REPO_LABEL: &str = "github.com/ebarczynski/twinkle-linux";
+pub const AUTHOR: &str = "Edwin Barczynski (@ebarczynski)";
+pub const AUTHOR_EMAIL: &str = "barczynski.e@gmail.com";
 
 /// Commands from the tray menu to the GTK4 main thread.
 #[derive(Debug)]
 pub enum TrayCommand {
     ShowBrightness,
-    SetAllBrightness(u16),
+    /// Flip `schedule.enabled` in the config and refresh the menu.
+    ToggleSchedule,
+    /// Re-read the config file from disk and refresh the menu.
+    ReloadConfig,
     ShowSettings,
     ShowAbout,
     Quit,
 }
 
-/// The ksni Tray state. Only holds a channel sender — no GTK4 objects.
-struct TrayState {
+/// The ksni Tray state. Only holds a channel sender and cheap status
+/// snapshots — no GTK4 objects.
+pub struct TrayState {
     tx: tokio::sync::mpsc::UnboundedSender<TrayCommand>,
+    /// Whether the day/night schedule is currently enabled.
+    pub schedule_enabled: bool,
+    /// One-line schedule status shown (disabled) in the menu, updated by
+    /// the schedule engine, e.g. "Day 90% — until 16:24 Evening (Wrocław)".
+    pub schedule_status: String,
 }
 
 impl Tray for TrayState {
@@ -46,7 +65,7 @@ impl Tray for TrayState {
     fn tool_tip(&self) -> ksni::ToolTip {
         ksni::ToolTip {
             title: "Twinkle Linux".into(),
-            description: "Monitor brightness control".into(),
+            description: format!("Monitor brightness control\n{}", REPO_LABEL),
             ..Default::default()
         }
     }
@@ -58,17 +77,13 @@ impl Tray for TrayState {
 
     fn menu(&self) -> Vec<MenuItem<Self>> {
         let tx_show = self.tx.clone();
-        let tx_10 = self.tx.clone();
-        let tx_20 = self.tx.clone();
-        let tx_40 = self.tx.clone();
-        let tx_60 = self.tx.clone();
-        let tx_80 = self.tx.clone();
-        let tx_100 = self.tx.clone();
+        let tx_schedule = self.tx.clone();
+        let tx_reload = self.tx.clone();
         let tx_settings = self.tx.clone();
         let tx_about = self.tx.clone();
         let tx_quit = self.tx.clone();
 
-        vec![
+        let mut menu = vec![
             StandardItem {
                 label: "Brightness Control".into(),
                 icon_name: "display-brightness-symbolic".into(),
@@ -79,62 +94,43 @@ impl Tray for TrayState {
             }
             .into(),
             MenuItem::Separator,
-            // Quick brightness presets — set ALL monitors at once
-            StandardItem {
-                label: "  10%  (Night)".into(),
-                icon_name: "weather-clear-night-symbolic".into(),
+            // Day/night schedule toggle + live status line
+            CheckmarkItem {
+                label: "Day/night schedule".into(),
+                checked: self.schedule_enabled,
+                icon_name: "day-night-symbolic".into(),
                 activate: Box::new(move |_this: &mut Self| {
-                    let _ = tx_10.send(TrayCommand::SetAllBrightness(10));
+                    let _ = tx_schedule.send(TrayCommand::ToggleSchedule);
                 }),
                 ..Default::default()
             }
             .into(),
+        ];
+
+        if self.schedule_enabled && !self.schedule_status.is_empty() {
+            menu.push(
+                StandardItem {
+                    label: self.schedule_status.clone(),
+                    enabled: false, // information-only row
+                    ..Default::default()
+                }
+                .into(),
+            );
+        }
+
+        menu.push(
             StandardItem {
-                label: "  20%  (Dusk)".into(),
-                icon_name: "weather-overcast-symbolic".into(),
+                label: "Reload config".into(),
+                icon_name: "view-refresh-symbolic".into(),
                 activate: Box::new(move |_this: &mut Self| {
-                    let _ = tx_20.send(TrayCommand::SetAllBrightness(20));
+                    let _ = tx_reload.send(TrayCommand::ReloadConfig);
                 }),
                 ..Default::default()
             }
             .into(),
-            StandardItem {
-                label: "  40%  (Cloudy)".into(),
-                icon_name: "weather-few-clouds-symbolic".into(),
-                activate: Box::new(move |_this: &mut Self| {
-                    let _ = tx_40.send(TrayCommand::SetAllBrightness(40));
-                }),
-                ..Default::default()
-            }
-            .into(),
-            StandardItem {
-                label: "  60%  (Sunny)".into(),
-                icon_name: "weather-clear-symbolic".into(),
-                activate: Box::new(move |_this: &mut Self| {
-                    let _ = tx_60.send(TrayCommand::SetAllBrightness(60));
-                }),
-                ..Default::default()
-            }
-            .into(),
-            StandardItem {
-                label: "  80%  (Full Sun)".into(),
-                icon_name: "weather-clear-symbolic".into(),
-                activate: Box::new(move |_this: &mut Self| {
-                    let _ = tx_80.send(TrayCommand::SetAllBrightness(80));
-                }),
-                ..Default::default()
-            }
-            .into(),
-            StandardItem {
-                label: "  100%  (Max)".into(),
-                icon_name: "weather-clear-symbolic".into(),
-                activate: Box::new(move |_this: &mut Self| {
-                    let _ = tx_100.send(TrayCommand::SetAllBrightness(100));
-                }),
-                ..Default::default()
-            }
-            .into(),
-            MenuItem::Separator,
+        );
+        menu.push(MenuItem::Separator);
+        menu.push(
             StandardItem {
                 label: "Settings".into(),
                 icon_name: "preferences-system-symbolic".into(),
@@ -144,6 +140,8 @@ impl Tray for TrayState {
                 ..Default::default()
             }
             .into(),
+        );
+        menu.push(
             StandardItem {
                 label: "About".into(),
                 icon_name: "help-about-symbolic".into(),
@@ -153,7 +151,9 @@ impl Tray for TrayState {
                 ..Default::default()
             }
             .into(),
-            MenuItem::Separator,
+        );
+        menu.push(MenuItem::Separator);
+        menu.push(
             StandardItem {
                 label: "Quit".into(),
                 icon_name: "application-exit-symbolic".into(),
@@ -163,12 +163,13 @@ impl Tray for TrayState {
                 ..Default::default()
             }
             .into(),
-        ]
+        );
+        menu
     }
 }
 
 pub struct TrayIcon {
-    _handle: ksni::Handle<TrayState>,
+    handle: Arc<ksni::Handle<TrayState>>,
 }
 
 impl TrayIcon {
@@ -176,11 +177,14 @@ impl TrayIcon {
         app: &Application,
         popup: Arc<Mutex<Option<BrightnessPopup>>>,
         config_manager: Arc<tokio::sync::Mutex<crate::core::ConfigManager>>,
-        ddc_manager: Arc<crate::ddc::DDCManager>,
     ) -> Self {
         let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<TrayCommand>();
 
-        let tray_state = TrayState { tx };
+        let tray_state = TrayState {
+            tx,
+            schedule_enabled: false,
+            schedule_status: String::new(),
+        };
 
         // Spawn the ksni tray service
         let handle = tokio::task::block_in_place(|| {
@@ -197,12 +201,13 @@ impl TrayIcon {
                 panic!("Failed to create system tray icon: {}", e);
             }
         };
+        let handle = Arc::new(handle);
 
         // Process tray commands on the GLib main context.
         let app_clone = app.clone();
         let popup_clone = popup.clone();
         let config_clone = config_manager.clone();
-        let ddc_clone = ddc_manager.clone();
+        let handle_for_commands = handle.clone();
 
         gtk4::glib::timeout_add_local(std::time::Duration::from_millis(100), move || {
             // Drain all pending commands
@@ -213,25 +218,50 @@ impl TrayIcon {
                             popup.popup();
                         }
                     }
-                    TrayCommand::SetAllBrightness(value) => {
-                        let ddc = ddc_clone.clone();
+                    TrayCommand::ToggleSchedule => {
                         let config = config_clone.clone();
+                        let handle = handle_for_commands.clone();
                         gtk4::glib::spawn_future_local(async move {
-                            let min = {
-                                let cfg = config.lock().await;
-                                cfg.config().behavior.min_brightness
-                            };
-                            let clamped = value.max(min);
-                            let monitors = ddc.get_monitors().await;
-                            for m in &monitors {
-                                if let Err(e) = ddc.set_brightness(&m.unique_id(), clamped).await {
-                                    tracing::warn!(
-                                        "Quick set failed on {}: {}",
-                                        m.display_name(),
-                                        e
-                                    );
+                            let enabled = {
+                                let mut mgr = config.lock().await;
+                                mgr.config_mut().schedule.enabled = !mgr.config().schedule.enabled;
+                                let enabled = mgr.config().schedule.enabled;
+                                if let Err(e) = mgr.save() {
+                                    tracing::error!("Failed to save schedule toggle: {}", e);
                                 }
-                            }
+                                enabled
+                            };
+                            handle
+                                .update(|t| {
+                                    t.schedule_enabled = enabled;
+                                    if !enabled {
+                                        t.schedule_status = "Auto schedule off".into();
+                                    }
+                                })
+                                .await;
+                            tracing::info!("Day/night schedule toggled: {}", enabled);
+                        });
+                    }
+                    TrayCommand::ReloadConfig => {
+                        let config = config_clone.clone();
+                        let handle = handle_for_commands.clone();
+                        gtk4::glib::spawn_future_local(async move {
+                            let enabled = {
+                                let mut mgr = config.lock().await;
+                                if let Err(e) = mgr.load() {
+                                    tracing::warn!("Failed to reload config: {}", e);
+                                }
+                                mgr.config().schedule.enabled
+                            };
+                            handle
+                                .update(|t| {
+                                    t.schedule_enabled = enabled;
+                                    if !enabled {
+                                        t.schedule_status = "Auto schedule off".into();
+                                    }
+                                })
+                                .await;
+                            tracing::info!("Config reloaded from disk");
                         });
                     }
                     TrayCommand::ShowSettings => {
@@ -254,14 +284,20 @@ impl TrayIcon {
                     TrayCommand::ShowAbout => {
                         let windows = app_clone.windows();
                         let parent = windows.first().cloned();
+                        let contact = format!("{} <{}>", AUTHOR, AUTHOR_EMAIL);
                         let dialog = AboutDialog::builder()
                             .program_name("Twinkle Linux")
                             .version(env!("CARGO_PKG_VERSION"))
-                            .comments("Monitor brightness control for Linux")
+                            .comments(format!(
+                                "Monitor brightness control for Linux\n\n{}",
+                                REPO_LABEL
+                            ))
                             .license_type(License::MitX11)
-                            .website("https://github.com/ebarczynski/twinkle-linux")
-                            .authors(vec!["Edwin Barczynski".to_string()])
+                            .website(REPO_URL)
+                            .website_label(REPO_LABEL)
                             .build();
+                        dialog.set_authors(&[AUTHOR]);
+                        dialog.add_credit_section("Contact", &[contact.as_str()]);
                         if let Some(p) = parent {
                             dialog.set_transient_for(Some(&p));
                         }
@@ -275,6 +311,12 @@ impl TrayIcon {
             gtk4::glib::ControlFlow::Continue
         });
 
-        Self { _handle: handle }
+        Self { handle }
+    }
+
+    /// Shared tray handle — the schedule engine uses it to push live
+    /// status updates into the menu.
+    pub fn tray_handle(&self) -> Arc<ksni::Handle<TrayState>> {
+        self.handle.clone()
     }
 }

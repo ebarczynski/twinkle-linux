@@ -1,6 +1,7 @@
 //! Core module for Twinkle Linux.
 
 pub mod config;
+pub mod schedule;
 
 // Re-exports for convenience
 #[allow(unused_imports)]
