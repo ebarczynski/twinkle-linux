@@ -24,6 +24,9 @@ pub const AUTHOR_EMAIL: &str = "barczynski.e@gmail.com";
 /// Commands from the tray menu to the GTK4 main thread.
 #[derive(Debug)]
 pub enum TrayCommand {
+    /// Show the quick all-monitors slider (tray icon click).
+    ShowQuickSlider,
+    /// Show the full per-monitor brightness panel.
     ShowBrightness,
     /// Flip `schedule.enabled` in the config and refresh the menu.
     ToggleSchedule,
@@ -70,9 +73,10 @@ impl Tray for TrayState {
         }
     }
 
-    /// Left-click on tray icon opens brightness popup directly.
+    /// Left-click on tray icon opens the quick slider directly — no
+    /// indirection to another panel.
     fn activate(&mut self, _x: i32, _y: i32) {
-        let _ = self.tx.send(TrayCommand::ShowBrightness);
+        let _ = self.tx.send(TrayCommand::ShowQuickSlider);
     }
 
     fn menu(&self) -> Vec<MenuItem<Self>> {
@@ -101,7 +105,7 @@ impl Tray for TrayState {
 
         vec![
             StandardItem {
-                label: "Brightness Control".into(),
+                label: "Brightness details (per monitor)".into(),
                 icon_name: "display-brightness-symbolic".into(),
                 activate: Box::new(move |_this: &mut Self| {
                     let _ = tx_show.send(TrayCommand::ShowBrightness);
@@ -172,6 +176,7 @@ impl TrayIcon {
     pub fn new(
         app: &Application,
         popup: Arc<Mutex<Option<BrightnessPopup>>>,
+        quick: Arc<Mutex<Option<crate::ui::quick_popup::QuickPopup>>>,
         config_manager: Arc<tokio::sync::Mutex<crate::core::ConfigManager>>,
     ) -> Self {
         let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<TrayCommand>();
@@ -208,12 +213,18 @@ impl TrayIcon {
         // Process tray commands on the GLib main context.
         let app_clone = app.clone();
         let popup_clone = popup.clone();
+        let quick_clone = quick.clone();
         let config_clone = config_manager.clone();
 
         gtk4::glib::timeout_add_local(std::time::Duration::from_millis(100), move || {
             // Drain all pending commands
             while let Ok(cmd) = rx.try_recv() {
                 match cmd {
+                    TrayCommand::ShowQuickSlider => {
+                        if let Some(ref quick) = *quick_clone.lock().unwrap() {
+                            quick.popup();
+                        }
+                    }
                     TrayCommand::ShowBrightness => {
                         if let Some(ref popup) = *popup_clone.lock().unwrap() {
                             popup.popup();

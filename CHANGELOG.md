@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added (round 3 — quick slider)
+- Quick all-monitors slider opens directly on tray icon click — no more
+  indirection to a separate panel. Borderless, shows the live percentage,
+  snaps to configured values on release, auto-closes on click-away/Escape/
+  10 s idle. The full per-monitor panel moved to
+  "Brightness details (per monitor)" in the menu. The shell tray menu
+  itself cannot host a real slider (dbusmenu items are text-only), so this
+  borderless panel is the closest native equivalent.
+
 ### Fixed (round 2 — on-device feedback)
 - Tray menu rewritten to be shell-safe: PLAIN standard items only with a
   constant structure. The previous round's checkmark item, disabled info row

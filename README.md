@@ -34,8 +34,8 @@ range of hardware without elevated privileges.
 | Feature | Details |
 |---|---|
 | System tray | StatusNotifierItem via ksni (pure Rust) |
-| Brightness slider popup | Card-based dark UI, live percentage, snap to configured values |
-| "All Monitors" master | Always visible at the top of the popup |
+| Quick slider on tray click | Borderless all-monitors slider with live %, closes on click-away |
+| Brightness details panel | Card-based dark UI, per-monitor sliders, snapping |
 | Config-driven snap points | `ui.preset_values` → tick marks + snap-on-release |
 | Day/night schedule | Sunrise/sunset cycling (NOAA sunrise equation, offline) |
 | Smooth ramps | Transitions interpolate over `schedule.ramp_minutes` |
@@ -120,13 +120,13 @@ A brightness icon will appear in your system tray.
 
 | Action | Effect |
 |---|---|
-| Left-click tray icon | Open / close brightness popup |
-| Drag a slider | Adjust brightness; the label shows the live percentage |
-| Release the slider | Snaps to the nearest configured value (`ui.preset_values`) |
-| Drag "All Monitors" slider | Adjust all monitors simultaneously |
-| Tray menu → "Day/night schedule" | Toggle automatic sunrise/sunset cycling |
-| Tray menu → "Reload config" | Re-read `config.json` without restarting |
-| Click "Quit" in tray menu | Exit the application |
+| Left-click tray icon | Quick all-monitors slider, right on the spot (closes on outside click / Esc) |
+| Drag the quick slider | Adjust all monitors; label shows the live percentage |
+| Release the quick slider | Snaps to the nearest configured value (`ui.preset_values`) |
+| Tray → "Brightness details (per monitor)" | Full panel with a slider per display |
+| Tray → "Day/night schedule" | Toggle automatic sunrise/sunset cycling |
+| Tray → "Reload config" | Re-read `config.json` without restarting |
+| Tray → "Quit" | Exit the application |
 
 ## Day/Night Schedule
 
