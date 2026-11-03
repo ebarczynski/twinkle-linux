@@ -97,8 +97,9 @@ jobs:
             # arm64 multiarch tree from ports.ubuntu.com and install the
             # aarch64 GTK dev stack; keep host sources amd64-only so the
             # added architecture does not break apt metadata lookups.
-            sudo sed -i 's/^deb /deb [arch=amd64] /' /etc/apt/sources.list 2>/dev/null || true
-            sudo sed -i 's/^deb /deb [arch=amd64] /' /etc/apt/sources.list.d/*.list 2>/dev/null || true
+            # (Skip lines that already declare an [arch=...] option.)
+            sudo sed -i -E '/\[arch=/! s/^deb /deb [arch=amd64] /' /etc/apt/sources.list 2>/dev/null || true
+            sudo sed -i -E '/\[arch=/! s/^deb /deb [arch=amd64] /' /etc/apt/sources.list.d/*.list 2>/dev/null || true
             sudo sed -i 's/^Architectures: .*/Architectures: amd64/' /etc/apt/sources.list.d/*.sources 2>/dev/null || true
             sudo dpkg --add-architecture arm64
             CODENAME="$(lsb_release -sc)"

@@ -7,6 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed (round 5 — CI)
+- **Test job**: schedule tests were timezone-dependent —
+  `sun_times_local` returned instants converted to the HOST machine's
+  timezone, so tests pinned to CET passed locally (CET machine) and failed
+  on UTC CI runners. The whole schedule API (`decide`, `sun_times_local`,
+  `Transition`, `ScheduleDecision`) is now offset-explicit (`FixedOffset`
+  built from the caller's offset seconds); the engine passes
+  `Local::now().fixed_offset()`. Results are identical on any machine.
+- **Test job**: GTK widget tests SIGSEGV'd the whole test binary at exit on
+  headless runners (`gtk4::init()` on a display-less machine leaves
+  partially-initialized GLib state → GLib-GIO-CRITICAL + SIGSEGV 11).
+  They now require `DISPLAY`/`WAYLAND_DISPLAY` to be set before touching
+  GTK; headless CI skips them cleanly.
+- **Check & Lint job**: newer stable clippy lints (`clone_on_copy`,
+  `useless_borrows_in_formatting`, `arc_with_non_send_sync`,
+  `manual_checked_ops`, unused import, unnecessary cast) fixed so
+  `cargo clippy -- -D warnings` passes on the CI toolchain.
+- **Build job (aarch64)**: cross-compilation actually never worked —
+  pkg-config refused to resolve GTK for aarch64 (no arm64 sysroot).
+  The workflow now registers the arm64 multiarch tree from
+  ports.ubuntu.com, installs `libgtk-4-dev:arm64` +
+  `gcc-aarch64-linux-gnu`, and points pkg-config at the arm64 pkgconfig
+  dir (`PKG_CONFIG_LIBDIR` + `PKG_CONFIG_ALLOW_CROSS`).
+  Also `fail-fast: false` so one matrix leg failing no longer cancels
+  the other.
+
 ### Changed (round 4 — tray value list is back)
 - The tray menu again carries a brightness value LIST, now generated from
   the config (`ui.preset_values` + `preset_labels`) — the same values the
