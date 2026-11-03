@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [1.0.0] - 2026-11-03
 
+### Changed
+- CI builds x86_64 only: the aarch64 cross-compile leg is removed.
+  Cross-compiling GTK4 on GitHub runners proved fragile (multiarch
+  version skew between the amd64 image snapshot and ports.ubuntu.com —
+  apt required exact M-A:same version equality per suite, then dpkg
+  unpack of `libpango1.0-dev:arm64` still failed). x86_64 Ubuntu 24.04
+  is the supported target; the multiarch recipe is preserved in git
+  history and project notes for anyone resurrecting ARM builds.
+
 ### Fixed (round 5 — CI)
 - **All jobs**: runner pinned to `ubuntu-24.04` — the distro this app
   targets, so CI always builds on the same GTK/apt base users run

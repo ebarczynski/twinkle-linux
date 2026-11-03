@@ -68,58 +68,19 @@ jobs:
         run: cd twinkle-rust && cargo test --verbose
 
   build:
-    name: Build (${{ matrix.target }})
+    name: Build x86_64
     runs-on: ubuntu-24.04
     needs: [check, test]
-    strategy:
-      # A failure in one matrix leg must not cancel the other: the x86_64
-      # build was being cancelled by unrelated aarch64 cross-compile issues.
-      fail-fast: false
-      matrix:
-        include:
-          - target: x86_64-unknown-linux-gnu
-            artifact: twinkle-linux-x86_64
-          - target: aarch64-unknown-linux-gnu
-            artifact: twinkle-linux-aarch64
     steps:
       - uses: actions/checkout@v7
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: ${{ matrix.target }}
 
       - name: Install system dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y libgtk-4-dev pkg-config
-          if [ "${{ matrix.target }}" = "aarch64-unknown-linux-gnu" ]; then
-            # Cross-compiling GTK needs an aarch64 sysroot. Register the
-            # arm64 multiarch tree from ports.ubuntu.com and install the
-            # aarch64 GTK dev stack; keep host sources amd64-only so the
-            # added architecture does not break apt metadata lookups.
-            # (Skip lines that already declare an [arch=...] option.)
-            sudo sed -i -E '/\[arch=/! s/^deb /deb [arch=amd64] /' /etc/apt/sources.list 2>/dev/null || true
-            sudo sed -i -E '/\[arch=/! s/^deb /deb [arch=amd64] /' /etc/apt/sources.list.d/*.list 2>/dev/null || true
-            # Pin deb822 stanzas: rewrite an existing Architectures line,
-            # and INSERT one after each Types: line when missing (the
-            # 24.04 image's ubuntu.sources has none — without it apt
-            # queries security.ubuntu.com for arm64, which only exists
-            # on ports.ubuntu.com -> 404 -> apt update fails).
-            sudo sed -i 's/^Architectures: .*/Architectures: amd64/' /etc/apt/sources.list.d/*.sources 2>/dev/null || true
-            for f in /etc/apt/sources.list.d/*.sources; do
-              [ -e "$f" ] || continue
-              grep -q '^Architectures:' "$f" || sudo sed -i '/^Types:/a Architectures: amd64' "$f"
-            done
-            sudo dpkg --add-architecture arm64
-            CODENAME="$(lsb_release -sc)"
-            printf 'deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports %s main restricted universe multiverse\n' "$CODENAME" | sudo tee /etc/apt/sources.list.d/arm64-ports.list
-            printf 'deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports %s-updates main restricted universe multiverse\n' "$CODENAME" | sudo tee -a /etc/apt/sources.list.d/arm64-ports.list
-            printf 'deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports %s-security main restricted universe multiverse\n' "$CODENAME" | sudo tee -a /etc/apt/sources.list.d/arm64-ports.list
-            printf 'deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports %s-backports main restricted universe multiverse\n' "$CODENAME" | sudo tee -a /etc/apt/sources.list.d/arm64-ports.list
-            sudo apt-get update
-            sudo apt-get install -y gcc-aarch64-linux-gnu libgtk-4-dev:arm64
-          fi
 
       - name: Cache cargo
         uses: actions/cache@v6
@@ -128,23 +89,16 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             twinkle-rust/target
-          key: ${{ runner.os }}-cargo-${{ matrix.target }}-${{ hashFiles('twinkle-rust/Cargo.lock') }}
-          restore-keys: ${{ runner.os }}-cargo-${{ matrix.target }}-
+          key: ${{ runner.os }}-cargo-x86_64-unknown-linux-gnu-${{ hashFiles('twinkle-rust/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-x86_64-unknown-linux-gnu-
 
       - name: Build release
         run: |
           cd twinkle-rust
-          if [ "${{ matrix.target }}" = "aarch64-unknown-linux-gnu" ]; then
-            export CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc
-            # Point pkg-config at the arm64 multiarch tree and allow
-            # "cross" resolution (the .pc files describe aarch64 libs).
-            export PKG_CONFIG_LIBDIR=/usr/lib/aarch64-linux-gnu/pkgconfig:/usr/share/pkgconfig
-            export PKG_CONFIG_ALLOW_CROSS=1
-          fi
-          cargo build --release --target ${{ matrix.target }}
+          cargo build --release
 
       - name: Upload artifact
         uses: actions/upload-artifact@v7
         with:
-          name: ${{ matrix.artifact }}
-          path: twinkle-rust/target/${{ matrix.target }}/release/twinkle-linux
+          name: twinkle-linux-x86_64
+          path: twinkle-rust/target/release/twinkle-linux
