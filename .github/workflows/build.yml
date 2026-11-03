@@ -71,6 +71,9 @@ jobs:
     runs-on: ubuntu-latest
     needs: [check, test]
     strategy:
+      # A failure in one matrix leg must not cancel the other: the x86_64
+      # build was being cancelled by unrelated aarch64 cross-compile issues.
+      fail-fast: false
       matrix:
         include:
           - target: x86_64-unknown-linux-gnu
@@ -90,7 +93,19 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libgtk-4-dev pkg-config
           if [ "${{ matrix.target }}" = "aarch64-unknown-linux-gnu" ]; then
-            sudo apt-get install -y gcc-aarch64-linux-gnu
+            # Cross-compiling GTK needs an aarch64 sysroot. Register the
+            # arm64 multiarch tree from ports.ubuntu.com and install the
+            # aarch64 GTK dev stack; keep host sources amd64-only so the
+            # added architecture does not break apt metadata lookups.
+            sudo sed -i 's/^deb /deb [arch=amd64] /' /etc/apt/sources.list 2>/dev/null || true
+            sudo sed -i 's/^deb /deb [arch=amd64] /' /etc/apt/sources.list.d/*.list 2>/dev/null || true
+            sudo sed -i 's/^Architectures: .*/Architectures: amd64/' /etc/apt/sources.list.d/*.sources 2>/dev/null || true
+            sudo dpkg --add-architecture arm64
+            CODENAME="$(lsb_release -sc)"
+            printf 'deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports %s main restricted universe multiverse\n' "$CODENAME" | sudo tee /etc/apt/sources.list.d/arm64-ports.list
+            printf 'deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports %s-updates main restricted universe multiverse\n' "$CODENAME" | sudo tee -a /etc/apt/sources.list.d/arm64-ports.list
+            sudo apt-get update
+            sudo apt-get install -y gcc-aarch64-linux-gnu libgtk-4-dev:arm64
           fi
 
       - name: Cache cargo
@@ -108,6 +123,10 @@ jobs:
           cd twinkle-rust
           if [ "${{ matrix.target }}" = "aarch64-unknown-linux-gnu" ]; then
             export CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc
+            # Point pkg-config at the arm64 multiarch tree and allow
+            # "cross" resolution (the .pc files describe aarch64 libs).
+            export PKG_CONFIG_LIBDIR=/usr/lib/aarch64-linux-gnu/pkgconfig:/usr/share/pkgconfig
+            export PKG_CONFIG_ALLOW_CROSS=1
           fi
           cargo build --release --target ${{ matrix.target }}
 
