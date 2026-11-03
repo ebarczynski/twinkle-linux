@@ -5,9 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.0.0] - 2026-11-03
 
 ### Fixed (round 5 — CI)
+- **All jobs**: runner pinned to `ubuntu-24.04` — the distro this app
+  targets, so CI always builds on the same GTK/apt base users run
+  (silences the `ubuntu-latest` → Ubuntu 26 migration notice). GitHub
+  actions upgraded past their Node 20 deprecation (`checkout@v7`,
+  `cache@v6`, `upload-artifact@v7`). Pushing `v*` tags now triggers CI,
+  so release binaries are built from the tag itself.
 - **Test job**: schedule tests were timezone-dependent —
   `sun_times_local` returned instants converted to the HOST machine's
   timezone, so tests pinned to CET passed locally (CET machine) and failed
