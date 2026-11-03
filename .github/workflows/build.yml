@@ -94,13 +94,6 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libgtk-4-dev pkg-config
           if [ "${{ matrix.target }}" = "aarch64-unknown-linux-gnu" ]; then
-            # Multiarch libraries must be version-identical across
-            # architectures (M-A:same). The runner image snapshot is
-            # older than noble-updates, so first bring the amd64 packages
-            # up to the same suites the arm64 packages will come from —
-            # otherwise libpcre2-8-0:arm64 / libc6:arm64 refuse to
-            # co-install ("held broken packages").
-            sudo DEBIAN_FRONTEND=noninteractive apt-get -y upgrade -o Dpkg::Options::=--force-confold
             # Cross-compiling GTK needs an aarch64 sysroot. Register the
             # arm64 multiarch tree from ports.ubuntu.com and install the
             # aarch64 GTK dev stack; keep host sources amd64-only so the
@@ -122,6 +115,8 @@ jobs:
             CODENAME="$(lsb_release -sc)"
             printf 'deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports %s main restricted universe multiverse\n' "$CODENAME" | sudo tee /etc/apt/sources.list.d/arm64-ports.list
             printf 'deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports %s-updates main restricted universe multiverse\n' "$CODENAME" | sudo tee -a /etc/apt/sources.list.d/arm64-ports.list
+            printf 'deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports %s-security main restricted universe multiverse\n' "$CODENAME" | sudo tee -a /etc/apt/sources.list.d/arm64-ports.list
+            printf 'deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports %s-backports main restricted universe multiverse\n' "$CODENAME" | sudo tee -a /etc/apt/sources.list.d/arm64-ports.list
             sudo apt-get update
             sudo apt-get install -y gcc-aarch64-linux-gnu libgtk-4-dev:arm64
           fi
