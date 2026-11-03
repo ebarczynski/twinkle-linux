@@ -1,7 +1,6 @@
 //! UI module for Twinkle Linux.
 
 pub mod brightness_popup;
-pub mod quick_popup;
 pub mod tray_icon;
 pub mod widgets;
 

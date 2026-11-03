@@ -4,9 +4,12 @@
 //! to the GLib main context. The ksni tray runs on a tokio background
 //! task, and sends commands that are processed on the GTK main thread.
 //!
-//! The tray menu intentionally contains NO brightness value list — the
-//! slider popup (left click / "Brightness Control") is the brightness
-//! control, snapping to the values configured in `ui.preset_values`.
+//! The tray menu carries a brightness value LIST generated from the config
+//! (`ui.preset_values` + `preset_labels`) — the same values the sliders in
+//! the brightness details panel snap to. Selecting a value sets all
+//! monitors. Keep menu items PLAIN (StandardItem + separators, constant
+//! structure): exotic item types or dynamic row counts render as empty
+//! menus on some shell AppIndicator implementations.
 
 use crate::ui::brightness_popup::BrightnessPopup;
 use gtk4::prelude::*;
@@ -24,10 +27,10 @@ pub const AUTHOR_EMAIL: &str = "barczynski.e@gmail.com";
 /// Commands from the tray menu to the GTK4 main thread.
 #[derive(Debug)]
 pub enum TrayCommand {
-    /// Show the quick all-monitors slider (tray icon click).
-    ShowQuickSlider,
     /// Show the full per-monitor brightness panel.
     ShowBrightness,
+    /// Set ALL monitors to a configured preset value.
+    SetAllBrightness(u16),
     /// Flip `schedule.enabled` in the config and refresh the menu.
     ToggleSchedule,
     /// Re-read the config file from disk and refresh the menu.
@@ -37,15 +40,37 @@ pub enum TrayCommand {
     Quit,
 }
 
-/// The ksni Tray state. Only holds a channel sender and cheap status
-/// snapshots — no GTK4 objects.
+/// The ksni Tray state. Only holds a channel sender, the config-driven
+/// preset list and cheap status snapshots — no GTK4 objects.
 pub struct TrayState {
     tx: tokio::sync::mpsc::UnboundedSender<TrayCommand>,
+    /// Brightness presets for the menu: (value, display label), sorted by
+    /// value, derived from `ui.preset_values` + `preset_labels`.
+    pub presets: Vec<(u16, String)>,
     /// Whether the day/night schedule is currently enabled.
     pub schedule_enabled: bool,
-    /// One-line schedule status shown (disabled) in the menu, updated by
-    /// the schedule engine, e.g. "Day 90% — until 16:24 Evening (Wrocław)".
+    /// One-line schedule status shown in the schedule item label, updated
+    /// by the schedule engine, e.g. "Day 90% — until 16:26 Evening (Wrocław)".
     pub schedule_status: String,
+}
+
+/// Weather-ish icon for a brightness percentage (0 = night, 100 = full sun).
+fn weather_icon(value: u16) -> &'static str {
+    match value {
+        0..=25 => "weather-clear-night-symbolic",
+        26..=50 => "weather-overcast-symbolic",
+        51..=75 => "weather-few-clouds-symbolic",
+        _ => "weather-clear-symbolic",
+    }
+}
+
+/// Menu label for a preset: "  10%  (Night)" or "  30%" when unlabeled.
+fn preset_menu_label(value: u16, label: &str) -> String {
+    if label.is_empty() {
+        format!("  {}%", value)
+    } else {
+        format!("  {}%  ({})", value, label)
+    }
 }
 
 impl Tray for TrayState {
@@ -73,10 +98,9 @@ impl Tray for TrayState {
         }
     }
 
-    /// Left-click on tray icon opens the quick slider directly — no
-    /// indirection to another panel.
+    /// Left-click on tray icon opens the brightness panel.
     fn activate(&mut self, _x: i32, _y: i32) {
-        let _ = self.tx.send(TrayCommand::ShowQuickSlider);
+        let _ = self.tx.send(TrayCommand::ShowBrightness);
     }
 
     fn menu(&self) -> Vec<MenuItem<Self>> {
@@ -103,7 +127,7 @@ impl Tray for TrayState {
             "Day/night schedule: OFF".to_string()
         };
 
-        vec![
+        let mut menu = vec![
             StandardItem {
                 label: "Brightness details (per monitor)".into(),
                 icon_name: "display-brightness-symbolic".into(),
@@ -114,9 +138,31 @@ impl Tray for TrayState {
             }
             .into(),
             MenuItem::Separator,
-            // Single toggle item: click flips schedule.enabled. ON shows the
-            // live status inline (e.g. "Schedule: ON — Day 90% — until 16:26
-            // Evening (Wrocław, Poland)").
+        ];
+
+        // Brightness presets from the config — the same values the sliders
+        // snap to in the details panel.
+        for (value, label) in &self.presets {
+            let tx_preset = self.tx.clone();
+            let value = *value;
+            menu.push(
+                StandardItem {
+                    label: preset_menu_label(value, label),
+                    icon_name: weather_icon(value).into(),
+                    activate: Box::new(move |_this: &mut Self| {
+                        let _ = tx_preset.send(TrayCommand::SetAllBrightness(value));
+                    }),
+                    ..Default::default()
+                }
+                .into(),
+            );
+        }
+
+        menu.push(MenuItem::Separator);
+        // Single toggle item: click flips schedule.enabled. ON shows the
+        // live status inline (e.g. "Schedule: ON — Day 90% — until 16:26
+        // Evening (Wrocław, Poland)").
+        menu.push(
             StandardItem {
                 label: schedule_label,
                 icon_name: "day-night-symbolic".into(),
@@ -126,6 +172,8 @@ impl Tray for TrayState {
                 ..Default::default()
             }
             .into(),
+        );
+        menu.push(
             StandardItem {
                 label: "Reload config".into(),
                 icon_name: "view-refresh-symbolic".into(),
@@ -135,7 +183,9 @@ impl Tray for TrayState {
                 ..Default::default()
             }
             .into(),
-            MenuItem::Separator,
+        );
+        menu.push(MenuItem::Separator);
+        menu.push(
             StandardItem {
                 label: "Settings".into(),
                 icon_name: "preferences-system-symbolic".into(),
@@ -145,6 +195,8 @@ impl Tray for TrayState {
                 ..Default::default()
             }
             .into(),
+        );
+        menu.push(
             StandardItem {
                 label: "About".into(),
                 icon_name: "help-about-symbolic".into(),
@@ -154,7 +206,9 @@ impl Tray for TrayState {
                 ..Default::default()
             }
             .into(),
-            MenuItem::Separator,
+        );
+        menu.push(MenuItem::Separator);
+        menu.push(
             StandardItem {
                 label: "Quit".into(),
                 icon_name: "application-exit-symbolic".into(),
@@ -164,7 +218,8 @@ impl Tray for TrayState {
                 ..Default::default()
             }
             .into(),
-        ]
+        );
+        menu
     }
 }
 
@@ -176,14 +231,32 @@ impl TrayIcon {
     pub fn new(
         app: &Application,
         popup: Arc<Mutex<Option<BrightnessPopup>>>,
-        quick: Arc<Mutex<Option<crate::ui::quick_popup::QuickPopup>>>,
         config_manager: Arc<tokio::sync::Mutex<crate::core::ConfigManager>>,
+        ddc_manager: Arc<crate::ddc::DDCManager>,
+        manual_tx: Option<tokio::sync::mpsc::UnboundedSender<crate::core::schedule::ScheduleEvent>>,
     ) -> Self {
         let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<TrayCommand>();
 
+        // Initial preset list + schedule state from the config.
+        let (presets, schedule_enabled) = tokio::task::block_in_place(|| {
+            tokio::runtime::Handle::current().block_on(async {
+                let cfg = config_manager.lock().await;
+                let config = cfg.config();
+                (
+                    crate::utils::preset_menu_entries(
+                        &config.ui.preset_values,
+                        &config.ui.preset_labels,
+                        config.behavior.min_brightness,
+                    ),
+                    config.schedule.enabled,
+                )
+            })
+        });
+
         let tray_state = TrayState {
             tx,
-            schedule_enabled: false,
+            presets,
+            schedule_enabled,
             schedule_status: String::new(),
         };
 
@@ -202,7 +275,7 @@ impl TrayIcon {
             Err(e) => {
                 tracing::error!(
                     "Failed to create system tray icon: {} — continuing WITHOUT tray. \
-                     Set TWINKLE_AUTOSHOW=1 to open the popup at startup.",
+                     Set TWINKLE_AUTOSHOW=1 to open the brightness panel at startup.",
                     e
                 );
                 None
@@ -213,22 +286,45 @@ impl TrayIcon {
         // Process tray commands on the GLib main context.
         let app_clone = app.clone();
         let popup_clone = popup.clone();
-        let quick_clone = quick.clone();
         let config_clone = config_manager.clone();
+        let ddc_clone = ddc_manager.clone();
+        let manual_tx_clone = manual_tx.clone();
 
         gtk4::glib::timeout_add_local(std::time::Duration::from_millis(100), move || {
             // Drain all pending commands
             while let Ok(cmd) = rx.try_recv() {
                 match cmd {
-                    TrayCommand::ShowQuickSlider => {
-                        if let Some(ref quick) = *quick_clone.lock().unwrap() {
-                            quick.popup();
-                        }
-                    }
                     TrayCommand::ShowBrightness => {
                         if let Some(ref popup) = *popup_clone.lock().unwrap() {
                             popup.popup();
                         }
+                    }
+                    TrayCommand::SetAllBrightness(value) => {
+                        let ddc = ddc_clone.clone();
+                        let config = config_clone.clone();
+                        let manual_tx = manual_tx_clone.clone();
+                        gtk4::glib::spawn_future_local(async move {
+                            let min = {
+                                let cfg = config.lock().await;
+                                cfg.config().behavior.min_brightness
+                            };
+                            let clamped = value.max(min);
+                            let monitors = ddc.get_monitors().await;
+                            for m in &monitors {
+                                if let Err(e) = ddc.set_brightness(&m.unique_id(), clamped).await {
+                                    tracing::warn!(
+                                        "Preset set failed on {}: {}",
+                                        m.display_name(),
+                                        e
+                                    );
+                                }
+                            }
+                            // Manual change suspends the day/night schedule
+                            // for the current phase (same as slider drags).
+                            if let Some(tx) = manual_tx {
+                                let _ = tx.send(crate::core::schedule::ScheduleEvent::ManualChange);
+                            }
+                        });
                     }
                     TrayCommand::ToggleSchedule => {
                         let config = config_clone.clone();
@@ -260,17 +356,26 @@ impl TrayIcon {
                         let config = config_clone.clone();
                         let handle = handle_for_commands.clone();
                         gtk4::glib::spawn_future_local(async move {
-                            let enabled = {
+                            let (enabled, presets) = {
                                 let mut mgr = config.lock().await;
                                 if let Err(e) = mgr.load() {
                                     tracing::warn!("Failed to reload config: {}", e);
                                 }
-                                mgr.config().schedule.enabled
+                                let config = mgr.config();
+                                (
+                                    config.schedule.enabled,
+                                    crate::utils::preset_menu_entries(
+                                        &config.ui.preset_values,
+                                        &config.ui.preset_labels,
+                                        config.behavior.min_brightness,
+                                    ),
+                                )
                             };
                             if let Some(handle) = handle.as_ref() {
                                 handle
                                     .update(|t| {
                                         t.schedule_enabled = enabled;
+                                        t.presets = presets;
                                         if !enabled {
                                             t.schedule_status = "Auto schedule off".into();
                                         }

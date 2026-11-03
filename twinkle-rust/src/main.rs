@@ -11,7 +11,6 @@ use crate::core::schedule::ScheduleEvent;
 use crate::core::ConfigManager;
 use crate::ddc::DDCManager;
 use crate::ui::brightness_popup::BrightnessPopup;
-use crate::ui::quick_popup::QuickPopup;
 use crate::ui::tray_icon::TrayIcon;
 use gtk4::prelude::*;
 use gtk4::{Application, ApplicationWindow};
@@ -53,9 +52,6 @@ fn build_ui(app: &Application, state: AppState) {
     #[allow(clippy::arc_with_non_send_sync)]
     let popup_arc: Arc<std::sync::Mutex<Option<BrightnessPopup>>> =
         Arc::new(std::sync::Mutex::new(None));
-    #[allow(clippy::arc_with_non_send_sync)]
-    let quick_arc: Arc<std::sync::Mutex<Option<QuickPopup>>> =
-        Arc::new(std::sync::Mutex::new(None));
 
     let ddc_manager = state.ddc_manager.clone();
     let config_manager = state.config_manager.clone();
@@ -95,39 +91,22 @@ fn build_ui(app: &Application, state: AppState) {
         *popup_arc.lock().unwrap() = Some(popup);
         tracing::info!("BrightnessPopup created");
 
-        // Quick all-monitors slider: shown directly on tray click.
-        let quick = QuickPopup::new(
-            ddc_manager.clone(),
-            config_manager.clone(),
-            Some(manual_tx.clone()),
-        )
-        .await;
-        *quick_arc.lock().unwrap() = Some(quick);
-        tracing::info!("QuickPopup created");
-
-        // TWINKLE_AUTOSHOW=1: open the quick slider at startup (tray click
-        // equivalent). TWINKLE_AUTOSHOW=2: open the full per-monitor panel.
-        // Debugging aids that also make the app usable without a tray host.
-        match std::env::var("TWINKLE_AUTOSHOW").as_deref() {
-            Ok("1") => {
-                if let Some(ref quick) = *quick_arc.lock().unwrap() {
-                    quick.popup();
-                }
+        // TWINKLE_AUTOSHOW=1: open the brightness panel at startup
+        // (tray-click equivalent). Makes the app usable and debuggable
+        // on systems without a tray host.
+        if std::env::var("TWINKLE_AUTOSHOW").as_deref() == Ok("1") {
+            if let Some(ref popup) = *popup_arc.lock().unwrap() {
+                popup.popup();
             }
-            Ok("2") => {
-                if let Some(ref popup) = *popup_arc.lock().unwrap() {
-                    popup.popup();
-                }
-            }
-            _ => {}
         }
 
         tracing::info!("Creating TrayIcon...");
         let tray = TrayIcon::new(
             &app_clone,
             popup_arc.clone(),
-            quick_arc.clone(),
             config_manager.clone(),
+            ddc_manager.clone(),
+            Some(manual_tx.clone()),
         );
         tracing::info!("TrayIcon created, icon should now be visible in system tray");
 

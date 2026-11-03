@@ -34,12 +34,12 @@ range of hardware without elevated privileges.
 | Feature | Details |
 |---|---|
 | System tray | StatusNotifierItem via ksni (pure Rust) |
-| Quick slider on tray click | Borderless all-monitors slider with live %, closes on click-away |
-| Brightness details panel | Card-based dark UI, per-monitor sliders, snapping |
+| Config-driven value list | Tray menu presets = `ui.preset_values`, set all monitors on click |
+| Brightness details panel | Card-based dark UI, per-monitor sliders, live %, snapping |
 | Config-driven snap points | `ui.preset_values` → tick marks + snap-on-release |
 | Day/night schedule | Sunrise/sunset cycling (NOAA sunrise equation, offline) |
 | Smooth ramps | Transitions interpolate over `schedule.ramp_minutes` |
-| Manual override | Sliders suspend the schedule until the next phase |
+| Manual override | Sliders and menu presets suspend the schedule until the next phase |
 | DDC/CI (external) | HDMI, DisplayPort, USB-C monitors via `ddcutil` |
 | Backlight (internal) | Laptop panels via systemd-logind D-Bus |
 | Debounced I2C | 300 ms debounce to avoid flooding the DDC bus |
@@ -120,12 +120,13 @@ A brightness icon will appear in your system tray.
 
 | Action | Effect |
 |---|---|
-| Left-click tray icon | Quick all-monitors slider, right on the spot (closes on outside click / Esc) |
-| Drag the quick slider | Adjust all monitors; label shows the live percentage |
-| Release the quick slider | Snaps to the nearest configured value (`ui.preset_values`) |
+| Left-click tray icon | Open the brightness panel |
+| Tray → brightness value list | Set all monitors to a configured value (`ui.preset_values`, same values the sliders snap to) |
+| Drag a slider | Adjust brightness; the label shows the live percentage |
+| Release a slider | Snaps to the nearest configured value |
 | Tray → "Brightness details (per monitor)" | Full panel with a slider per display |
 | Tray → "Day/night schedule" | Toggle automatic sunrise/sunset cycling |
-| Tray → "Reload config" | Re-read `config.json` without restarting |
+| Tray → "Reload config" | Re-read `config.json` without restarting (also refreshes the menu value list) |
 | Tray → "Quit" | Exit the application |
 
 ## Day/Night Schedule

@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed (round 4 — tray value list is back)
+- The tray menu again carries a brightness value LIST, now generated from
+  the config (`ui.preset_values` + `preset_labels`) — the same values the
+  sliders in the details panel snap to. Selecting a value sets all
+  monitors (clamped by `min_brightness`, suspends the day/night schedule
+  for the current phase like slider drags). "Reload config" refreshes the
+  list. The round-3 borderless quick slider was removed — on real GNOME
+  sessions the panel did not appear on tray click; the config-driven list
+  is the pragmatic replacement.
+
 ### Added (round 3 — quick slider)
 - Quick all-monitors slider opens directly on tray icon click — no more
   indirection to a separate panel. Borderless, shows the live percentage,
