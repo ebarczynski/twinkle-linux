@@ -94,6 +94,13 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libgtk-4-dev pkg-config
           if [ "${{ matrix.target }}" = "aarch64-unknown-linux-gnu" ]; then
+            # Multiarch libraries must be version-identical across
+            # architectures (M-A:same). The runner image snapshot is
+            # older than noble-updates, so first bring the amd64 packages
+            # up to the same suites the arm64 packages will come from —
+            # otherwise libpcre2-8-0:arm64 / libc6:arm64 refuse to
+            # co-install ("held broken packages").
+            sudo DEBIAN_FRONTEND=noninteractive apt-get -y upgrade -o Dpkg::Options::=--force-confold
             # Cross-compiling GTK needs an aarch64 sysroot. Register the
             # arm64 multiarch tree from ports.ubuntu.com and install the
             # aarch64 GTK dev stack; keep host sources amd64-only so the
