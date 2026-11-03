@@ -17,7 +17,7 @@
 
 use crate::core::config::{ConfigManager, ScheduleConfig};
 use crate::ddc::DDCManager;
-use chrono::{DateTime, Duration, FixedOffset, Local, NaiveDate, NaiveDateTime, TimeZone, Utc};
+use chrono::{DateTime, Duration, FixedOffset, Local, NaiveDate, NaiveDateTime, TimeZone};
 use std::sync::Arc;
 use tokio::sync::Mutex as TokioMutex;
 
@@ -65,8 +65,8 @@ impl Phase {
 /// A brightness change between two phases at a point in time.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Transition {
-    /// When the transition begins (local time).
-    pub at: DateTime<Local>,
+    /// When the transition begins (in the caller's explicit UTC offset).
+    pub at: DateTime<FixedOffset>,
     /// Phase before the transition.
     pub from: Phase,
     /// Phase after the transition.
@@ -82,8 +82,9 @@ pub struct ScheduleDecision {
     pub phase: Phase,
     /// True while ramping between phases.
     pub ramping: bool,
-    /// Next transition (when it fires and which phase it brings).
-    pub next: Option<(DateTime<Local>, Phase)>,
+    /// Next transition (when it fires and which phase it brings), in the
+    /// same UTC offset as the `now` passed to [`decide`].
+    pub next: Option<(DateTime<FixedOffset>, Phase)>,
 }
 
 impl ScheduleDecision {
@@ -200,16 +201,19 @@ pub fn sun_times_utc(
     Some((sunrise, sunset))
 }
 
-/// Sunrise/sunset for a local date, expressed as local-time instants.
+/// Sunrise/sunset for a local date, expressed as instants in the SAME
+/// explicit UTC offset (never the host machine's timezone — keeps results
+/// deterministic across machines and CI).
 pub fn sun_times_local(
     date: NaiveDate,
     local_offset_secs: i32,
     latitude: f64,
     longitude: f64,
-) -> Option<(DateTime<Local>, DateTime<Local>)> {
+) -> Option<(DateTime<FixedOffset>, DateTime<FixedOffset>)> {
     let (sunrise_utc, sunset_utc) = sun_times_utc(date, local_offset_secs, latitude, longitude)?;
-    let sunrise = Utc.from_utc_datetime(&sunrise_utc).with_timezone(&Local);
-    let sunset = Utc.from_utc_datetime(&sunset_utc).with_timezone(&Local);
+    let tz = FixedOffset::east_opt(local_offset_secs)?;
+    let sunrise = tz.from_utc_datetime(&sunrise_utc);
+    let sunset = tz.from_utc_datetime(&sunset_utc);
     Some((sunrise, sunset))
 }
 
@@ -246,9 +250,11 @@ fn transitions_for_date(
 
 /// Compute the schedule decision at `now`.
 ///
-/// The initial phase (before any transition) is Night — the darkest and most
-/// conservative default for pre-sunrise times with missing solar data.
-pub fn decide(now: DateTime<Local>, cfg: &ScheduleConfig) -> ScheduleDecision {
+/// Accepts any explicit-offset instant (`Local::now().fixed_offset()` in
+/// the engine, a pinned `FixedOffset` in tests). The initial phase (before
+/// any transition) is Night — the darkest and most conservative default for
+/// pre-sunrise times with missing solar data.
+pub fn decide(now: DateTime<FixedOffset>, cfg: &ScheduleConfig) -> ScheduleDecision {
     let offset = now.offset().to_owned();
     let today = now.date_naive();
 
@@ -259,7 +265,7 @@ pub fn decide(now: DateTime<Local>, cfg: &ScheduleConfig) -> ScheduleDecision {
         let Some(d) = today.checked_add_signed(Duration::days(days)) else {
             continue;
         };
-        transitions.extend(transitions_for_date(d, offset.clone(), cfg));
+        transitions.extend(transitions_for_date(d, offset, cfg));
     }
     transitions.sort_by_key(|t| t.at);
 
@@ -337,7 +343,7 @@ pub fn spawn_engine(
                         Some(ScheduleEvent::ManualChange) => {
                             let cfg = config_manager.lock().await.config().schedule.clone();
                             if cfg.enabled {
-                                let decision = decide(Local::now(), &cfg);
+                                let decision = decide(Local::now().fixed_offset(), &cfg);
                                 suspended_for = Some(decision.phase);
                                 tracing::info!(
                                     "Schedule suspended for {} phase (manual brightness change)",
@@ -381,7 +387,7 @@ pub fn spawn_engine(
                 continue;
             }
 
-            let now = Local::now();
+            let now = Local::now().fixed_offset();
             let decision = decide(now, &cfg);
             let status = decision.status_line(&cfg);
 
@@ -520,16 +526,16 @@ mod tests {
         FixedOffset::east_opt(3600).unwrap()
     }
 
-    fn local_at(y: i32, m: u32, d: u32, h: u32, min: u32) -> DateTime<Local> {
+    fn local_at(y: i32, m: u32, d: u32, h: u32, min: u32) -> DateTime<FixedOffset> {
         // Deterministic regardless of the test machine's TZ: pin the CET
-        // offset (+01:00) onto the DateTime<Local> explicitly.
+        // offset (+01:00) explicitly — decide() is offset-explicit.
         let naive_local = NaiveDate::from_ymd_opt(y, m, d)
             .unwrap()
             .and_hms_opt(h, min, 0)
             .unwrap();
         let offset = winter_tz();
         let naive_utc = naive_local - Duration::seconds(offset.local_minus_utc() as i64);
-        DateTime::<Local>::from_naive_utc_and_offset(naive_utc, offset)
+        DateTime::<FixedOffset>::from_naive_utc_and_offset(naive_utc, offset)
     }
 
     #[test]

@@ -201,15 +201,23 @@ impl Default for VCPControlsContainer {
 mod tests {
     use super::*;
 
-    /// Returns true if GTK initialized successfully (display available).
+    /// Returns true if a display is likely available AND GTK initializes.
+    /// The env check runs first: attempting gtk4::init() on a headless CI
+    /// runner leaves partially-initialized GLib state that SIGSEGVs at
+    /// process exit.
     fn init_gtk() -> bool {
+        let has_display =
+            std::env::var_os("DISPLAY").is_some() || std::env::var_os("WAYLAND_DISPLAY").is_some();
+        if !has_display {
+            eprintln!("skipping: no DISPLAY/WAYLAND_DISPLAY — headless environment");
+            return false;
+        }
         gtk4::init().is_ok()
     }
 
     #[test]
     fn test_vcp_control_section_new() {
         if !init_gtk() {
-            eprintln!("skipping: no display available");
             return;
         }
         let section = VCPControlSection::new(0x10);
@@ -219,7 +227,6 @@ mod tests {
     #[test]
     fn test_vcp_controls_container_new() {
         if !init_gtk() {
-            eprintln!("skipping: no display available");
             return;
         }
         let container = VCPControlsContainer::new();
@@ -229,7 +236,6 @@ mod tests {
     #[test]
     fn test_vcp_controls_container_add_section() {
         if !init_gtk() {
-            eprintln!("skipping: no display available");
             return;
         }
         let mut container = VCPControlsContainer::new();

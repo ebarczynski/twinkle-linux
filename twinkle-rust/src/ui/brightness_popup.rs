@@ -344,10 +344,15 @@ impl BrightnessPopup {
         let snap_presets = Arc::new(StdMutex::new(initial_presets));
         attach_snap_on_release(&override_scale, &override_adjustment, snap_presets.clone());
 
+        // CardEntry holds GTK types (main-thread-only); the Arc is shared
+        // between glib closures on the main context only.
+        #[allow(clippy::arc_with_non_send_sync)]
+        let card_entries = Arc::new(StdMutex::new(Vec::new()));
+
         let popup = Self {
             window,
             cards_container,
-            card_entries: Arc::new(StdMutex::new(Vec::new())),
+            card_entries,
             override_adjustment,
             override_scale,
             override_suppress,
@@ -661,10 +666,9 @@ impl BrightnessPopup {
                         count += 1;
                     }
                 }
-                if count > 0 {
-                    let avg = sum / count;
+                if let Some(avg) = sum.checked_div(count) {
                     override_suppress.store(true, Ordering::SeqCst);
-                    override_adjustment.set_value(avg as f64);
+                    override_adjustment.set_value(f64::from(avg));
                     override_value_label.set_label(&format!("{}%", avg));
                 }
             }

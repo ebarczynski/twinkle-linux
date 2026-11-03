@@ -408,7 +408,7 @@ impl DDCManager {
         let (raw_value, max) = tokio::task::spawn_blocking({
             let path = path.clone();
             move || -> (u32, u32) {
-                let max_str = std::fs::read_to_string(format!("{}/max_brightness", &path))
+                let max_str = std::fs::read_to_string(format!("{}/max_brightness", path))
                     .unwrap_or_else(|_| "100".to_string());
                 let max: u32 = max_str.trim().parse().unwrap_or(100);
                 let raw = (value as u32 * max / 100) as u32;

@@ -20,7 +20,7 @@ fn main() {
         Err(_) => ScheduleConfig::default(),
     };
 
-    let now = chrono::Local::now();
+    let now = chrono::Local::now().fixed_offset();
     println!("Location   : {}", cfg.location_name);
     println!("Coordinates: {:.4}, {:.4}", cfg.latitude, cfg.longitude);
     println!("Now (local): {}", now.format("%Y-%m-%d %H:%M:%S %Z"));
