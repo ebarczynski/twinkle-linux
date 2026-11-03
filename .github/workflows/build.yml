@@ -101,7 +101,16 @@ jobs:
             # (Skip lines that already declare an [arch=...] option.)
             sudo sed -i -E '/\[arch=/! s/^deb /deb [arch=amd64] /' /etc/apt/sources.list 2>/dev/null || true
             sudo sed -i -E '/\[arch=/! s/^deb /deb [arch=amd64] /' /etc/apt/sources.list.d/*.list 2>/dev/null || true
+            # Pin deb822 stanzas: rewrite an existing Architectures line,
+            # and INSERT one after each Types: line when missing (the
+            # 24.04 image's ubuntu.sources has none — without it apt
+            # queries security.ubuntu.com for arm64, which only exists
+            # on ports.ubuntu.com -> 404 -> apt update fails).
             sudo sed -i 's/^Architectures: .*/Architectures: amd64/' /etc/apt/sources.list.d/*.sources 2>/dev/null || true
+            for f in /etc/apt/sources.list.d/*.sources; do
+              [ -e "$f" ] || continue
+              grep -q '^Architectures:' "$f" || sudo sed -i '/^Types:/a Architectures: amd64' "$f"
+            done
             sudo dpkg --add-architecture arm64
             CODENAME="$(lsb_release -sc)"
             printf 'deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports %s main restricted universe multiverse\n' "$CODENAME" | sudo tee /etc/apt/sources.list.d/arm64-ports.list
